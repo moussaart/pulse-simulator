@@ -296,14 +296,14 @@ This project has benefited from State aid managed by the **Agence Nationale de l
 
 ## 🙏 Acknowledgements & Funding
 
-This work is part of a **PhD project** supported by the **CMA RIS3 Project**, which has benefited from State aid managed by the **Agence Nationale de la Recherche (ANR)** under the **"France 2030"** program — reference **ANR-23-CMAS-0023**.
+This work is part of a **PhD project** supported by the **CMA RIS3 Project**, which has benefited from State aid managed by the **Agence Nationale de la Recherche (ANR)** under the **"France 2030"** program, reference **ANR-23-CMAS-0023**.
 
 Special thanks to our funders and partners:
 
-*   **ANR / France 2030** — ANR-23-CMAS-0023
-*   **[Lannion-Trégor Communauté (LTC)](https://www.lannion-tregor.com)** — for co-funding this research
-*   **IRISA / INRIA / CNRS** — for research infrastructure and institutional support
-*   **Granite Team at IRISA** — for all contributors and researchers involved
+*   **ANR / France 2030** : ANR-23-CMAS-0023
+*   **[Lannion-Trégor Communauté (LTC)](https://www.lannion-tregor.com)** : for co-funding this research
+*   **IRISA / INRIA / CNRS** : for research infrastructure and institutional support
+*   **Granite Team at IRISA** : for all contributors and researchers involved
 
 ---
 
