@@ -29,11 +29,7 @@
 
 The **PULSE Simulation Platform** is a high-fidelity environment designed to simulate, visualize, and analyze Ultra-Wideband (UWB) indoor localization systems. It bridges the gap between theoretical algorithm design and real-world physical discrepancies by incorporating a sophisticated channel model that accounts for multipath propagation, non-line-of-sight (NLOS) conditions, and dynamic environmental factors.
 
-<p align="center">
-  <video src="docs/assets/intrduction.mp4" width="100%" controls autoplay muted loop>
-    Your browser does not support the video tag.
-  </video>
-</p>
+[docs/assets/intrduction.mp4](https://github.com/moussaart/pulse-simulator/blob/main/docs/assets/intrduction.mp4)
 
 This project combines a robust physics-based simulation engine with a modular Graphical User Interface (GUI), allowing researchers and engineers to:
 
