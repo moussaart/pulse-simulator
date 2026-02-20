@@ -1,0 +1,28 @@
+{
+    "max": {
+        "parameters": {
+            "path_loss_exponent": 2.5,
+            "shadow_fading_std": 4.0,
+            "error_bias": 0.20000000000000004,
+            "noise_factor": 3.0000000000000013
+        },
+        "color": [
+            85,
+            170,
+            127
+        ]
+    },
+    "ultra": {
+        "parameters": {
+            "path_loss_exponent": 5.0,
+            "shadow_fading_std": 10.0,
+            "error_bias": 1.0,
+            "noise_factor": 10.0
+        },
+        "color": [
+            255,
+            85,
+            255
+        ]
+    }
+}

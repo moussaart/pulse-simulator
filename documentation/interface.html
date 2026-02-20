@@ -1,0 +1,281 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PULSE Simulator - User Interface</title>
+    <!-- Fonts managed in CSS via @import -->
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+    <nav class="sidebar" id="sidebar">
+        <div class="sidebar-header">
+            <div class="logo-container">
+                <img src="assets/logo.svg" alt="PULSE Logo" class="logo-icon">
+                <div class="logo-text">PULSE</div>
+            </div>
+            <p class="subtitle">Simulator Docs v1.0</p>
+            <div class="theme-switch-wrapper">
+                <label class="theme-switch" for="checkbox">
+                    <input type="checkbox" id="checkbox" />
+                    <div class="slider round"></div>
+                </label>
+                <em>Dark Mode</em>
+            </div>
+        </div>
+        <ul class="nav-links">
+            <li><a href="index.html">Introduction</a></li>
+            <li><a href="getting_started.html">Getting Started</a></li>
+            <li><a href="interface.html" class="active">User Guide</a></li>
+            <li><a href="simulation.html">Technical Reference</a></li>
+            <li><a href="advanced.html">Developer Guide</a></li>
+            <li><a href="researchers.html">Researchers</a></li>
+            <li><a href="license.html">License</a></li>
+        </ul>
+        <div class="sidebar-footer">
+             <p>&copy; 2026 PULSE Project</p>
+             <div style="margin-top: 10px; font-size: 0.85rem;">
+                <p style="margin-bottom: 5px; color: var(--text-tertiary);">Developed by <a href="https://tahamoussa.info/" target="_blank" style="font-weight: 500; color: var(--text-secondary);">Taha Moussa</a></p>
+                <div style="display: flex; gap: 10px;">
+                    <a href="https://www.linkedin.com/in/moussa-taha/" target="_blank" style="font-size: 0.8rem;">LinkedIn</a>
+                    <a href="https://github.com/moussaart" target="_blank" style="font-size: 0.8rem;">GitHub</a>
+                </div>
+             </div>
+        </div>
+    </nav>
+
+    <main class="content-wrapper">
+        <div class="content">
+            
+            <section id="interface" class="doc-section">
+                <h1>User Guide</h1>
+                <p class="lead">A complete guide to using the PULSE simulator interface and features.</p>
+
+                <hr>
+
+                <h3>1. Main Dashboard</h3>
+                <p>The main window is your command center. It provides immediate access to visualization, controls, and status updates.</p>
+                
+                <figure>
+                    <img src="assets/main_window.png" alt="PULSE Main Dashboard">
+                    <figcaption>Overview of the Main Application Window</figcaption>
+                </figure>
+
+                <div class="concept-grid">
+                    <div class="card">
+                        <h4>Tool Bar</h4>
+                        <p>Top controls for:
+                        <ul>
+                            <li><strong>Play/Pause:</strong> Control simulation flow.</li>
+                            <li><strong>Settings:</strong> Open configuration dialogs.</li>
+                            <li><strong>View:</strong> Toggle different analysis windows.</li>
+                        </ul>
+                        </p>
+                    </div>
+                    <div class="card">
+                        <h4>Visualization Pane</h4>
+                        <p>The interactive map displaying:
+                        <ul>
+                            <li><strong>Anchors:</strong> Blue triangles.</li>
+                            <li><strong>Tag:</strong> Moving circle.</li>
+                            <li><strong>Rays:</strong> Signal paths (Green=LOS, Red=NLOS).</li>
+                        </ul>
+                        </p>
+                    </div>
+                    <div class="card">
+                        <h4>Control Panel</h4>
+                        <p>Sidebar for quick adjustments:
+                        <ul>
+                            <li><strong>Speed:</strong> Adjust simulation playback speed.</li>
+                            <li><strong>Layers:</strong> Toggle visibility of trails, rays, etc.</li>
+                        </ul>
+                        </p>
+                    </div>
+                </div>
+
+                <hr>
+
+                <h3>2. Environment Management</h3>
+                <p>Learn how to set up your simulation world.</p>
+
+                <div class="feature-block">
+                    <h4>⚓ Managing Anchors</h4>
+                    <p>Anchors are the fixed reference points (Base Stations).</p>
+                    <ul class="feature-list">
+                        <li><strong>Add Anchors:</strong> Open the <em>Anchors Configuration</em> panel -> Click <strong>"Click to Add"</strong> -> Click on map.</li>
+                        <li><strong>Move Anchors:</strong> Drag and drop any anchor on the map to reposition it.</li>
+                        <li><strong>Multi-Select:</strong> Hold <strong>'A'</strong> and drag to select multiple anchors (Yellow Box).</li>
+                        <li><strong>Multi-Move:</strong> Hold <strong>'A' + 'D'</strong> and drag to move selected group. <em>(Simulation Auto-Pauses)</em></li>
+                        <li><strong>Delete Anchors:</strong> Click <strong>"Delete"</strong> in the panel -> Click on the anchor to remove.</li>
+                    </ul>
+                </div>
+
+                <div class="feature-block">
+                    <h4>🚧 Managing Obstacles</h4>
+                    <p>Create walls and zones to simulate signal blocking.</p>
+                    
+                    <div class="tabs">
+                        <div class="tab-content">
+                            <h5>Static Walls & Zones</h5>
+                            <ul>
+                                <li><strong>Draw Lines (Walls):</strong> Panel -> "Draw Line" -> Start Click -> End Click -> Right-Click to finish.</li>
+                                <li><strong>Draw Polygons (Zones):</strong> Panel -> "Draw Polygon" -> Click multiple points -> Right-Click to close.</li>
+                                <li><strong>Multi-Select:</strong> Hold <strong>'O'</strong> and drag to select zones (Yellow Box).</li>
+                                <li><strong>Multi-Move:</strong> Hold <strong>'O' + 'P'</strong> and drag to move selected group. <em>(Simulation Auto-Pauses)</em></li>
+                                <li><strong>Edit Properties:</strong> Right-click any zone to change its material (Concrete, Glass, etc.).</li>
+                            </ul>
+                        </div>
+                        
+                        <div class="tab-content">
+                            <h5>Moving Obstacles</h5>
+                            <ol>
+                                <li>Click <strong>"Moving Obstacle"</strong>.</li>
+                                <li>Click <strong>Start Point</strong> -> Click <strong>End Point</strong>.</li>
+                                <li>Set speed and shape in the popup.</li>
+                            </ol>
+                        </div>
+                    </div>
+                </div>
+
+                <hr>
+
+                <h3>3. Window Management</h3>
+                <p>PULSE uses a modular, floating window system perfect for multi-monitor setups.</p>
+
+                <h4>Opening Windows</h4>
+                <p>Go to <strong>Top Menu -> View</strong> to open:</p>
+                
+                <div class="concept-grid">
+                    <div class="card-feature">
+                        <img src="assets/cir.png" alt="CIR Plot">
+                        <div class="card-feature-content">
+                            <h4>CIR Plot</h4>
+                            <p>Visualize the Channel Impulse Response and multipath components.</p>
+                        </div>
+                    </div>
+                    <div class="card-feature">
+                        <img src="assets/dist.png" alt="Distance Plot">
+                        <div class="card-feature-content">
+                            <h4>Distance Plot</h4>
+                            <p>Track real-time ranging errors and signal stability.</p>
+                        </div>
+                    </div>
+                    <div class="card-feature">
+                        <img src="assets/imu.png" alt="IMU Data">
+                        <div class="card-feature-content">
+                            <h4>IMU Data</h4>
+                            <p>Monitor live Accelerometer and Gyroscope sensor streams.</p>
+                        </div>
+                    </div>
+                </div>
+
+                <h4>Docking</h4>
+                <p>Windows float by default. Drag them to secondary screens for better visibility. Close them with the 'X' button; they can always be reopened from the View menu.</p>
+
+            </section>
+
+                <hr>
+
+                <h3>4. Movement Configuration</h3>
+                <p>Simulate realistic tag movement with flexible pattern generation and custom obstacles.</p>
+
+                <div class="concept-grid">
+                    <div class="card">
+                        <h4>Movement Panel</h4>
+                        <p>Located in the control sidebar:</p>
+                        <ul>
+                            <li><strong>Pattern:</strong> Select from presets like <em>Circular</em>, <em>Figure 8</em>, or <em>Random Walk</em>.</li>
+                            <li><strong>Speed:</strong> Adjust the physical speed of the tag (m/s).</li>
+                            <li><strong>Time Step:</strong> Control simulation resolution (default 5ms). Lower values = smoother but slower simulation.</li>
+                            <li><strong>Custom:</strong> Use <strong>"Draw"</strong> to sketch a path or <strong>"Import CSV"</strong> for precise coordinates.</li>
+                        </ul>
+                    </div>
+                </div>
+
+                <h4>Moving Obstacles</h4>
+                <p>Dynamic environments can be modeled with moving blockages (e.g., people, forklifts).</p>
+                <ul class="feature-list">
+                    <li><strong>Create:</strong> In the NLOS Panel, click <strong>"Moving"</strong>. Set start/end points on the map.</li>
+                    <li><strong>Configure:</strong> A window will open to set:
+                        <ul>
+                            <li><strong>Trajectory:</strong> Speed, Rotation, and exact coordinates.</li>
+                            <li><strong>Shape:</strong> Circle, Rectangle, Triangle, etc., with dimensions.</li>
+                            <li><strong>Materials:</strong> Specific containment/attenuation properties.</li>
+                        </ul>
+                    </li>
+                </ul>
+
+                <hr>
+
+                <h3>5. Localization Algorithms</h3>
+                <p>Test and compare different position estimation techniques.</p>
+
+                <div class="feature-block">
+                    <h4>Algorithm Selection</h4>
+                    <p>The <strong>Localization Algorithm</strong> panel allows real-time switching:</p>
+                    <ul>
+                        <li><strong>Standard:</strong> EKF (Extended Kalman Filter), UKF, Trilateration.</li>
+                        <li><strong>Advanced:</strong> NLOS-Aware AEKF, Particle Filters.</li>
+                        <li><strong>Smoothing (MA):</strong> Adjust the Moving Average window to reduce jitter in static conditions.</li>
+                    </ul>
+                </div>
+
+                <div class="feature-block">
+                    <h4>Adding Custom Algorithms</h4>
+                    <p>Extend the simulator with your own Python-based logic.</p>
+                    <ol>
+                        <li><strong>Open Creator:</strong> In the <em>Localization Algorithm</em> panel, click the <strong>"➕ New"</strong> button.</li>
+                        <li><strong>Configure:</strong>
+                            <ul>
+                                <li><strong>Name:</strong> Enter a unique name for your algorithm.</li>
+                                <li><strong>Features:</strong> Check boxes to auto-generate code templates for <em>IMU Data</em>, <em>Kalman State</em>, or <em>NLOS Handling</em>.</li>
+                            </ul>
+                        </li>
+                        <li><strong>Code:</strong> Use the built-in editor to implement your standard <code>update(input_data)</code> method.</li>
+                        <li><strong>Save:</strong> Click <strong>"Save Algorithm"</strong>. It will automatically load into the dropdown menu.</li>
+                    </ol>
+                </div>
+
+                <hr>
+
+                <h3>6. UWB Channel Modeling</h3>
+                <p>Deeply customize the UWB physical layer and channel effects.</p>
+
+                <div class="concept-grid">
+                    <div class="card">
+                        <h4>Signal & Link</h4>
+                        <p>Configure basic propagation physics:</p>
+                        <ul>
+                            <li><strong>Channel:</strong> Select UWB Band (e.g., Ch 5, Ch 9).</li>
+                            <li><strong>Path Loss:</strong> Set exponent (n) and shadowing (σ).</li>
+                            <li><strong>Antenna Gain:</strong> Tx/Rx gain in dBi.</li>
+                        </ul>
+                    </div>
+                    <div class="card">
+                        <h4>Multipath (S-V Model)</h4>
+                        <p>IEEE 802.15.3a / 802.15.4a standard modeling:</p>
+                        <ul>
+                            <li><strong>Cluster Decay (Γ):</strong> Inter-cluster arrival decay.</li>
+                            <li><strong>Ray Decay (γ):</strong> Intra-cluster ray decay.</li>
+                            <li><strong>Noise:</strong> Receiver noise figure and jitter.</li>
+                        </ul>
+                    </div>
+                </div>
+
+                <h4>Zone-Specific Modeling</h4>
+                <p>Each obstacle or zone can have unique material properties.</p>
+                <ul>
+                    <li><strong>Edit Zone:</strong> Right-click any drawn polygon to open its <em>Parameters Window</em>.</li>
+                    <li><strong>Presets:</strong> Load standard materials (Concrete, Glass, Wood) or save your own custom configurations.</li>
+                    <li><strong>Visuals:</strong> Assign distinct colors to zones to represent different attenuation levels.</li>
+                </ul>
+
+            </section>
+
+        </div>
+    </main>
+
+    <script src="script.js"></script>
+</body>
+</html>

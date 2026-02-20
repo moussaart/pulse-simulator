@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PULSE Simulator - Getting Started</title>
+    <!-- Fonts managed in CSS via @import -->
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+    <nav class="sidebar" id="sidebar">
+        <div class="sidebar-header">
+            <div class="logo-container">
+                <img src="assets/logo.svg" alt="PULSE Logo" class="logo-icon">
+                <div class="logo-text">PULSE</div>
+            </div>
+            <p class="subtitle">Simulator Docs v1.0</p>
+            <div class="theme-switch-wrapper">
+                <label class="theme-switch" for="checkbox">
+                    <input type="checkbox" id="checkbox" />
+                    <div class="slider round"></div>
+                </label>
+                <em>Dark Mode</em>
+            </div>
+        </div>
+        <ul class="nav-links">
+            <li><a href="index.html">Introduction</a></li>
+            <li><a href="getting_started.html" class="active">Getting Started</a></li>
+            <li><a href="interface.html">User Guide</a></li>
+            <li><a href="simulation.html">Technical Reference</a></li>
+            <li><a href="advanced.html">Developer Guide</a></li>
+            <li><a href="researchers.html">Researchers</a></li>
+            <li><a href="license.html">License</a></li>
+        </ul>
+        <div class="sidebar-footer">
+             <p>&copy; 2024 PULSE Project</p>
+             <div style="margin-top: 10px; font-size: 0.85rem;">
+                <p style="margin-bottom: 5px; color: var(--text-tertiary);">Developed by <a href="https://tahamoussa.info/" target="_blank" style="font-weight: 500; color: var(--text-secondary);">Taha Moussa</a></p>
+                <div style="display: flex; gap: 10px;">
+                    <a href="https://www.linkedin.com/in/moussa-taha/" target="_blank" style="font-size: 0.8rem;">LinkedIn</a>
+                    <a href="https://github.com/moussaart" target="_blank" style="font-size: 0.8rem;">GitHub</a>
+                </div>
+             </div>
+        </div>
+    </nav>
+
+    <main class="content-wrapper">
+        <div class="content">
+            
+            <section id="getting-started" class="doc-section">
+                <h1>Getting Started</h1>
+                <p class="lead">Follow these steps to set up the PULSE simulator on your machine.</p>
+
+                <hr>
+
+                <h3>System Requirements</h3>
+                <p>Ensure your system meets the following specifications for optimal performance.</p>
+                
+                <table class="component-table">
+                    <tr>
+                        <th>Component</th>
+                        <th>Minimum Requirement</th>
+                        <th>Recommended</th>
+                    </tr>
+                    <tr>
+                        <td><strong>OS</strong></td>
+                        <td>Windows 10, macOS, Linux</td>
+                        <td>Windows 11 (64-bit)</td>
+                    </tr>
+                    <tr>
+                        <td><strong>Python</strong></td>
+                        <td>Version 3.8</td>
+                        <td>Version 3.10 or higher</td>
+                    </tr>
+                    <tr>
+                        <td><strong>RAM</strong></td>
+                        <td>8 GB</td>
+                        <td>16 GB or higher</td>
+                    </tr>
+                    <tr>
+                        <td><strong>GPU</strong></td>
+                        <td>Integrated Graphics</td>
+                        <td>NVIDIA RTX Series (for Ray Tracing acceleration)</td>
+                    </tr>
+                </table>
+
+                <h3>Installation</h3>
+                <p>Clone the repository and install the dependencies.</p>
+                
+                <div class="step">
+                    <h4>1. Clone the Repository</h4>
+                    <pre><code>git clone https://github.com/your-repo/pulse-simulator.git
+cd pulse-simulator</code></pre>
+                </div>
+
+                <div class="step">
+                    <h4>2. Create a Virtual Environment (Recommended)</h4>
+                    <pre><code>python -m venv venv
+# Windows
+venv\Scripts\activate
+# macOS/Linux
+source venv/bin/activate</code></pre>
+                </div>
+
+                <div class="step">
+                    <h4>3. Install Dependencies</h4>
+                    <pre><code>pip install -r requirements.txt</code></pre>
+                </div>
+
+                <h3>First-Time Setup</h3>
+                <p>Run the main application script to launch the GUI. The first launch might take a few seconds to initialize the graphics engine.</p>
+                <pre><code>python src/app/Localization_app.py</code></pre>
+
+                <div class="info-box">
+                    <h3>Tip</h3>
+                    <p>If you encounter issues with `PyQt6` or `PyQtGraph`, try reinstalling them specifically using `pip install --force-reinstall pyqt6 pyqtgraph`.</p>
+                </div>
+
+                <h3>Next Steps</h3>
+                <p>Once the application is running, proceed to the <a href="interface.html">User Interface</a> section to learn about the dashboard.</p>
+
+            </section>
+
+        </div>
+    </main>
+
+    <script src="script.js"></script>
+</body>
+</html>

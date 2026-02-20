@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PULSE Simulator - Advanced & Architecture</title>
+    <!-- Fonts managed in CSS via @import -->
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+    <nav class="sidebar" id="sidebar">
+        <div class="sidebar-header">
+            <div class="logo-container">
+                <img src="assets/logo.svg" alt="PULSE Logo" class="logo-icon">
+                <div class="logo-text">PULSE</div>
+            </div>
+            <p class="subtitle">Simulator Docs v1.0</p>
+            <div class="theme-switch-wrapper">
+                <label class="theme-switch" for="checkbox">
+                    <input type="checkbox" id="checkbox" />
+                    <div class="slider round"></div>
+                </label>
+                <em>Dark Mode</em>
+            </div>
+        </div>
+        <ul class="nav-links">
+            <li><a href="index.html">Introduction</a></li>
+            <li><a href="getting_started.html">Getting Started</a></li>
+            <li><a href="interface.html">User Guide</a></li>
+            <li><a href="simulation.html">Technical Reference</a></li>
+            <li><a href="advanced.html" class="active">Developer Guide</a></li>
+            <li><a href="researchers.html">Researchers</a></li>
+            <li><a href="license.html">License</a></li>
+        </ul>
+        <div class="sidebar-footer">
+             <p>&copy; 2026 PULSE Project</p>
+             <div style="margin-top: 10px; font-size: 0.85rem;">
+                <p style="margin-bottom: 5px; color: var(--text-tertiary);">Developed by <a href="https://tahamoussa.info/" target="_blank" style="font-weight: 500; color: var(--text-secondary);">Taha Moussa</a></p>
+                <div style="display: flex; gap: 10px;">
+                    <a href="https://www.linkedin.com/in/moussa-taha/" target="_blank" style="font-size: 0.8rem;">LinkedIn</a>
+                    <a href="https://github.com/moussaart" target="_blank" style="font-size: 0.8rem;">GitHub</a>
+                </div>
+             </div>
+        </div>
+    </nav>
+
+    <main class="content-wrapper">
+        <div class="content">
+            
+            <section id="advanced" class="doc-section">
+                <h1>Developer Guide</h1>
+                <p class="lead">Under the hood: Architecture, Extension, and Contribution.</p>
+
+                <hr>
+
+                <h3>1. Simulator Architecture</h3>
+                <p>PULSE is built for modularity and speed.</p>
+                <div class="concept-grid">
+                    <div class="card">
+                        <h4>Core Engine</h4>
+                        <p>Python-based event loop orchestrating the simulation. Handles time steps and object updates.</p>
+                    </div>
+                    <div class="card">
+                        <h4>Physics (CuPy)</h4>
+                        <p>GPU-accelerated ray tracing engine. Calculates signal paths parallelized for high throughput.</p>
+                    </div>
+                    <div class="card">
+                        <h4>UI (PyQt6)</h4>
+                        <p>Reactive GUI decoupled from the core logic. Updates visualization based on simulation state.</p>
+                    </div>
+                </div>
+
+                <figure>
+                    <img id="architecture-diagram" src="assets/architecture.svg" alt="PULSE block diagram architecture">
+                    <figcaption>PULSE High-Level Architecture</figcaption>
+                </figure>
+
+                <hr>
+
+                <h3>2. Custom Algorithms</h3>
+                <p>Extend PULSE by adding your own localization logic.</p>
+
+                <h4>How it Works</h4>
+                <p>The system uses a <strong>Plugin Architecture</strong>. It automatically scans the `src/user_algorithms/` directory for Python files containing classes that inherit from `BaseLocalizationAlgorithm`.</p>
+
+                <h4>Implementation Steps</h4>
+                <ol>
+                    <li>Create a file `my_algo.py` in `src/user_algorithms/`.</li>
+                    <li>Import the base class.</li>
+                    <li>Implement `name`, `initialize`, and `update`.</li>
+                </ol>
+
+                <div class="code-wrapper">
+<pre><code class="language-python">from src.core.localization.base_algorithm import BaseLocalizationAlgorithm, AlgorithmInput, AlgorithmOutput
+import numpy as np
+
+class MyCustomFilter(BaseLocalizationAlgorithm):
+    @property
+    def name(self) -> str:
+        return "My Custom EKF"
+
+    def initialize(self) -> None:
+        self.state = np.zeros(4) # x, y, vx, vy
+
+    def update(self, input_data: AlgorithmInput) -> AlgorithmOutput:
+        # 1. Get Measurements
+        ranges = input_data.measurements
+        
+        # 2. Your Logic Here
+        estimated_pos = [0, 0] 
+        
+        # 3. Return Output
+        return AlgorithmOutput(
+            estimated_position=estimated_pos,
+            estimated_state=self.state,
+            covariance=np.eye(4)
+        )
+</code></pre>
+                </div>
+
+                <hr>
+
+                <h3>3. Contribution Guidelines</h3>
+                <p>We welcome contributions! Please follow these standards:</p>
+                <ul>
+                    <li><strong>Code Style:</strong> PEP 8.</li>
+                    <li><strong>Type Hints:</strong> Use Python type hinting for all function signatures.</li>
+                    <li><strong>Documentation:</strong> Add docstrings to all new classes and methods.</li>
+                </ul>
+
+
+
+            </section>
+        </div>
+    </main>
+
+    <script src="script.js"></script>
+</body>
+</html>

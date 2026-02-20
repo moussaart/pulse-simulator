@@ -1,0 +1,11 @@
+Env_Code,Environment,Condition,n,Lambda_cluster_1_per_ns,lambda1_1_per_ns,lambda2_1_per_ns,SigmaS_dB,Gamma_ns
+RES_LOS,Residential,LOS,1.79,0.047,1.54,0.15,2.22,22.61
+RES_NLOS,Residential,NLOS,4.58,0.12,1.77,0.15,3.51,26.27
+OFF_LOS,Indoor Office,LOS,1.63,0.016,0.19,2.97,1.9,14.6
+OFF_NLOS,Indoor Office,NLOS,3.07,0.02,0.15,1.8,3.9,15
+OUT_LOS,Outdoor,LOS,1.76,0.0048,0.27,2.41,0.83,31.7
+OUT_NLOS,Outdoor,NLOS,2.5,0.0243,0.15,1.13,2,104.7
+OPEN_NLOS,Open Outdoor,NLOS,1.58,0.0305,0.0225,0,3.96,56
+IND_LOS,Industrial,LOS,1.2,0.0709,0.2,1.5,6,13.47
+IND_NLOS,Industrial,NLOS,2.15,0.01,0.1,0.9,6,50
+

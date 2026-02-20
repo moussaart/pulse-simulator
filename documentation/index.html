@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PULSE Simulator - Home</title>
+    <!-- Fonts managed in CSS via @import -->
+    <!-- Main CSS -->
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+    <!-- Sidebar Navigation -->
+    <nav class="sidebar" id="sidebar">
+        <div class="sidebar-header">
+            <div class="logo-container">
+                <img src="assets/logo.svg" alt="PULSE Logo" class="logo-icon">
+                <div class="logo-text">PULSE</div>
+            </div>
+            <p class="subtitle">Simulator Docs v1.0</p>
+            
+            <div class="theme-switch-wrapper">
+                <label class="theme-switch" for="checkbox">
+                    <input type="checkbox" id="checkbox" />
+                    <div class="slider round"></div>
+                </label>
+                <em>Dark Mode</em>
+            </div>
+        </div>
+        
+        <ul class="nav-links">
+            <li><a href="index.html" class="active">Introduction</a></li>
+            <li><a href="getting_started.html">Getting Started</a></li>
+            <li><a href="interface.html">User Guide</a></li>
+            <li><a href="simulation.html">Technical Reference</a></li>
+            <li><a href="advanced.html">Developer Guide</a></li>
+            <li><a href="researchers.html">Researchers</a></li>
+            <li><a href="license.html">License</a></li>
+        </ul>
+        
+        <div class="sidebar-footer">
+             <p>&copy; 2026 PULSE Project</p>
+             <div style="margin-top: 10px; font-size: 0.85rem;">
+                <p style="margin-bottom: 5px; color: var(--text-tertiary);">Developed by <a href="https://tahamoussa.info/" target="_blank" style="font-weight: 500; color: var(--text-secondary);">Taha Moussa</a></p>
+                <div style="display: flex; gap: 10px;">
+                    <a href="https://www.linkedin.com/in/moussa-taha/" target="_blank" style="font-size: 0.8rem;">LinkedIn</a>
+                    <a href="https://github.com/moussaart" target="_blank" style="font-size: 0.8rem;">GitHub</a>
+                </div>
+             </div>
+        </div>
+    </nav>
+
+    <!-- Main Content Area -->
+    <main class="content-wrapper">
+        <div class="content">
+            
+            <!-- 1. Home / Introduction -->
+            <!-- 1. Home / Introduction -->
+            <section id="home" class="doc-section">
+                
+                <!-- Hero Section -->
+                <header class="hero">
+                    <div class="hero-content">
+                        <div class="hero-badge">
+                            <span class="hero-badge-dot"></span>
+                            Open-Source Research Tool &mdash; IRISA Laboratory
+                        </div>
+                        <h1>PULSE<br><span class="hero-title-alt">Simulator</span></h1>
+                        <p class="hero-subtitle">High&#8209;fidelity UWB simulation<br>for dynamic indoor environments.</p>
+                        <p class="hero-description">
+                            Test and validate localization algorithms &mdash; EKF, UKF, Particle Filter &mdash;
+                            in realistic, physics-accurate simulations. Train <strong>Reinforcement Learning</strong> agents 
+                            without costly hardware.
+                        </p>
+
+                    </div>
+                    <div class="hero-media">
+                        <video autoplay loop muted playsinline poster="assets/panal.png">
+                            <source src="assets/intrduction.mp4" type="video/mp4">
+                            Your browser does not support the video tag.
+                        </video>
+                    </div>
+                </header>
+
+                <div class="hero-actions">
+                    <a href="../dist/PULSE_Installer.exe" class="btn btn-download" download>
+                        <span class="btn-download-icon">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                        </span>
+                        <span class="btn-download-text">
+                            <span class="btn-download-label">Download Installer</span>
+                            <span class="btn-download-sub">Windows &bull; v1.0 &bull; Free</span>
+                        </span>
+                    </a>
+                    
+                    <a href="getting_started.html" class="hero-link btn-secondary">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
+                        <span class="btn-text">Get Started</span>
+                    </a>
+
+                    <a href="https://github.com/moussaart" target="_blank" class="hero-link btn-secondary">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M12 0C5.37 0 0 5.37 0 12c0 5.3 3.44 9.8 8.2 11.37.6.11.82-.26.82-.58 0-.28-.01-1.02-.02-2C5.4 21.36 4.7 19.18 4.7 19.18c-.54-1.38-1.32-1.74-1.32-1.74-1.08-.74.08-.72.08-.72 1.2.08 1.83 1.23 1.83 1.23 1.06 1.82 2.79 1.29 3.47.99.1-.77.41-1.29.75-1.59C6.67 17 4.14 16.1 4.14 11.47c0-1.33.47-2.42 1.24-3.27-.12-.3-.54-1.55.12-3.23 0 0 1.01-.32 3.3 1.23a11.5 11.5 0 0 1 3-.4c1.02 0 2.04.13 3 .4 2.28-1.56 3.3-1.23 3.3-1.23.66 1.68.24 2.93.12 3.23.77.85 1.24 1.94 1.24 3.27 0 4.64-2.54 5.66-4.96 5.96.39.34.74 1 .74 2.02 0 1.46-.01 2.63-.01 2.99 0 .32.22.7.83.58C20.56 21.8 24 17.3 24 12c0-6.63-5.37-12-12-12z"/></svg>
+                        <span class="btn-text">GitHub</span>
+                    </a>
+                </div>
+
+                <hr class="section-divider">
+
+                <!-- Key Objectives -->
+                <div class="features-section">
+                    <h3>Core Capabilities</h3>
+                    <div class="concept-grid">
+                        <div class="card">
+                            <div class="card-icon">🏢</div>
+                            <h4>Complex Environments</h4>
+                            <p>Simulate realistic indoor spaces with custom floor plans and dynamic, moving obstacles.</p>
+                        </div>
+                        <div class="card">
+                            <div class="card-icon">📡</div>
+                            <h4>Realistic Physics</h4>
+                            <p>Generate accurate UWB Channel Impulse Responses (CIR) using advanced Ray Tracing.</p>
+                        </div>
+                        <div class="card">
+                            <div class="card-icon">🎯</div>
+                            <h4>Algorithm Validation</h4>
+                            <p>Test and validate localization algorithms (EKF, UKF, PF) against ground truth data.</p>
+                        </div>
+                        <div class="card">
+                            <div class="card-icon">🤖</div>
+                            <h4>AI & RL Ready</h4>
+                            <p>Train Reinforcement Learning agents to perform localization tasks in complex scenarios.</p>
+                        </div>
+                    </div>
+                </div>
+
+                <hr class="section-divider">
+
+                <!-- Why PULSE? / Additional Info -->
+                <div class="info-layout">
+                    <div class="info-text">
+                        <h3>Why Choose PULSE?</h3>
+                        <p>
+                            Developing robust indoor localization systems requires extensive testing in diverse conditions. 
+                            Physical experiments are costly, time-consuming, and hard to reproduce. 
+                        </p>
+                        <p>
+                            PULSE provides a <strong>reproducible, scalable, and accessible</strong> platform for experimentation. 
+                            Whether you are a researcher validating a new filter or a developer building a UWB-based product, 
+                            PULSE offers the tools you need to iterate fast.
+                        </p>
+                    </div>
+                    <div class="hero-media">
+                        <video autoplay loop muted playsinline poster="assets/panal.png">
+                            <source src="assets/PULSE_Indoor_Localization_Simulation_Platform.mp4" type="video/mp4">
+                            Your browser does not support the video tag.
+                        </video>
+                    </div>
+                </div>
+
+                <hr class="section-divider">
+
+                <h3>Acknowledgements</h3>
+                <p>The developer gratefully acknowledges the support and funding that made this doctoral research possible. This work was carried out within the framework of the <a href="https://www-granit.irisa.fr/" target="_blank">IRISA Laboratory</a> (Granit team), University of Rennes, and was financially supported by the <a href="https://www.lannion-tregor.com/" target="_blank">Lannion-Trégor Communauté (LTC)</a>.</p>
+                
+                <p>This research was conducted as part of the <a href="https://ris3.insa-rennes.fr/le-projet-ris3" target="_blank">CMA RIS3 project</a>, which has benefited from State aid managed by the National Research Agency under the “France 2030” program bearing the reference <strong>ANR-23-CMAS-0023</strong>.</p>
+            </section>
+
+
+
+            <footer class="footer">
+                <p>&copy; 2026 PULSE Project.</p>
+            </footer>
+
+        </div>
+    </main>
+
+    <!-- Navigation Script -->
+    <script src="script.js"></script>
+</body>
+</html>
