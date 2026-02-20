@@ -11,7 +11,7 @@
 
 <p align="center">
   <a href="https://www.linkedin.com/company/granite-team-irisa/" target="_blank">
-    <img src="https://img.shields.io/badge/Granite_Team-IRISA-0077B5?style=for-the-badge&logo=linkedin&logoColor=white" alt="Granite Team LinkedIn"/>
+    <img src="https://www.linkedin.com/company/granit-team-at-irisa-laboratory/posts/?feedView=all" alt="Granite Team LinkedIn"/>
   </a>
   &nbsp;
   <img src="https://img.shields.io/badge/Python-3.8+-3776AB?style=for-the-badge&logo=python&logoColor=white" alt="Python 3.8+"/>
