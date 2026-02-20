@@ -35,7 +35,7 @@
 
     /* Layout */
     --sidebar-width: 260px;
-    --content-max-width: 900px;
+    --content-max-width: 1200px;
     --border-radius-lg: 16px;
     --border-radius-md: 12px;
     --border-radius-sm: 8px;
@@ -571,36 +571,42 @@ tr:hover td { background-color: var(--bg-surface-high); }
 /* ===========================
    Hero Section 
    =========================== */
+/* ===========================
+   Hero Section 
+   =========================== */
 .hero {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: 4rem;
-    padding: 2rem 0 4rem 0;
+    gap: 3rem;
+    padding: 3rem 0 5rem 0;
     animation: fadeIn 0.8s ease-out;
 }
 
 .hero-content {
     flex: 1;
-    max-width: 500px;
+    max-width: 550px;
 }
 
 .hero-media {
-    flex: 1;
-    max-width: 500px;
+    flex: 1.4;
+    max-width: 800px;
     position: relative;
+    display: flex;
+    justify-content: center;
 }
 
 .hero-media video {
     width: 100%;
     border-radius: var(--border-radius-lg);
-    box-shadow: 0 20px 40px rgba(0,0,0,0.2);
+    box-shadow: 0 25px 50px -12px rgba(0,0,0,0.4);
     border: 1px solid var(--border-subtle);
-    transition: transform 0.3s ease;
+    transition: transform 0.3s ease, box-shadow 0.3s ease;
 }
 
 .hero-media video:hover {
     transform: scale(1.02);
+    box-shadow: 0 30px 60px -12px rgba(0,0,0,0.5);
 }
 
 /* Hero badge */
