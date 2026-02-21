@@ -11,9 +11,7 @@ class Alghortimes_doc():
             "Unscented Kalman Filter": LocalizationAlgorthimes.unscented_kalman_filter,
             "Adaptive Extended Kalman Filter": LocalizationAlgorthimes.adaptive_extended_kalman_filter,
             "NLOS-Aware AEKF": LocalizationAlgorthimes.Nlos_aware_aekf,
-            "Improved Adaptive EKF": LocalizationAlgorthimes.improved_adaptive_ekf,
             "IMU Only": LocalizationAlgorthimes.imu_only_filter,
-            "IMU assisted NLOS-Aware AEKF": LocalizationAlgorthimes.IMU_assisted_Nlos_aware_aekf,
         }
         
         # Load custom algorithms only once
