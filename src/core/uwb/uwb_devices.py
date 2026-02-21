@@ -2,6 +2,7 @@ import numpy as np
 from dataclasses import dataclass
 from typing import Tuple, TYPE_CHECKING
 from enum import Enum
+from src.core.uwb.imu import IMUSimulator, IMUData
 
 
 if TYPE_CHECKING:
@@ -65,173 +66,6 @@ class Anchor(UWBDevice):
             tx_timestamp=self.response_tx_timestamp,
             rx_timestamp=self.poll_rx_timestamp
         )
-
-class IMUSimulator:
-    """
-    Realistic IMU simulator that generates sensor data from tag kinematics.
-    Simulates accelerometer and gyroscope with realistic noise and bias characteristics.
-    """
-    def __init__(self, sample_rate=100):
-        """
-        Initialize IMU simulator with realistic sensor parameters.
-        
-        Args:
-            sample_rate: IMU sampling rate in Hz (default: 100 Hz)
-        """
-        self.sample_rate = sample_rate
-        self.dt = 1.0 / sample_rate
-        
-        # Sensor noise parameters (consumer-grade IMU)
-        self.acc_noise_std = 0.02        # Accelerometer noise (m/s²)
-        self.gyro_noise_std = 0.001      # Gyroscope noise (rad/s)
-        
-        # Bias parameters
-        self.acc_bias = np.random.normal(0, 0.05, 3)   # Accelerometer bias (m/s²)
-        self.gyro_bias = np.random.normal(0, 0.01, 3)  # Gyroscope bias (rad/s)
-        self.bias_instability = 1e-5     # Bias random walk coefficient
-        
-        # Gravity constant
-        self.g = 9.81
-        
-        # Previous state for differentiation
-        self.prev_position = None
-        self.prev_velocity = None
-        self.prev_orientation = None
-        
-    def reset(self):
-        """Reset the simulator state"""
-        self.prev_position = None
-        self.prev_velocity = None
-        self.prev_orientation = None
-        self.acc_bias = np.random.normal(0, 0.05, 3)
-        self.gyro_bias = np.random.normal(0, 0.01, 3)
-        
-    def generate_imu_data(self, position, orientation, dt):
-        """
-        Generate realistic IMU measurements from tag kinematics.
-        
-        Args:
-            position: Position object with x, y, z coordinates
-            orientation: Tag orientation in radians (yaw angle)
-            dt: Time step since last measurement
-            
-        Returns:
-            tuple: (acceleration[3], angular_velocity[3]) in body frame
-        """
-        current_pos = np.array([position.x, position.y, position.z])
-        
-        # Initialize on first call
-        if self.prev_position is None:
-            self.prev_position = current_pos
-            self.prev_velocity = np.zeros(3)
-            self.prev_orientation = orientation
-            # Return stationary measurements
-            acc_body = np.array([0, 0, self.g]) + self.acc_bias + np.random.normal(0, self.acc_noise_std, 3)
-            gyro_body = self.gyro_bias + np.random.normal(0, self.gyro_noise_std, 3)
-            return acc_body, gyro_body
-        
-        # Calculate velocity and acceleration in world frame
-        velocity = (current_pos - self.prev_position) / dt
-        acceleration = (velocity - self.prev_velocity) / dt
-        
-        # Calculate angular velocity (yaw rate for 2D motion)
-        delta_yaw = orientation - self.prev_orientation
-        # Normalize to [-pi, pi]
-        delta_yaw = np.arctan2(np.sin(delta_yaw), np.cos(delta_yaw))
-        yaw_rate = delta_yaw / dt
-        
-        # Transform acceleration to body frame
-        cos_yaw = np.cos(orientation)
-        sin_yaw = np.sin(orientation)
-        R_world_to_body = np.array([
-            [cos_yaw, sin_yaw, 0],
-            [-sin_yaw, cos_yaw, 0],
-            [0, 0, 1]
-        ])
-        
-        # Accelerometer measures specific force (linear acceleration + gravity)
-        gravity_world = np.array([0, 0, -self.g])
-        specific_force_world = acceleration - gravity_world
-        specific_force_body = R_world_to_body @ specific_force_world
-        
-        # Gyroscope measures angular velocity in body frame
-        angular_velocity_body = np.array([0, 0, yaw_rate])  # Only yaw for 2D motion
-        
-        # Add sensor imperfections
-        # Update bias (random walk)
-        self.acc_bias += np.random.normal(0, self.bias_instability, 3)
-        self.gyro_bias += np.random.normal(0, self.bias_instability / 10, 3)
-        
-        # Add noise and bias
-        acc_measured = specific_force_body + self.acc_bias + np.random.normal(0, self.acc_noise_std, 3)
-        gyro_measured = angular_velocity_body + self.gyro_bias + np.random.normal(0, self.gyro_noise_std, 3)
-        
-        # Update previous state
-        self.prev_position = current_pos
-        self.prev_velocity = velocity
-        self.prev_orientation = orientation
-        
-        return acc_measured, gyro_measured
-
-
-class IMUData:
-    """Storage class for IMU measurements"""
-    def __init__(self):
-        self.acc_x = np.array([], dtype=np.float64)
-        self.acc_y = np.array([], dtype=np.float64)
-        self.acc_z = np.array([], dtype=np.float64)
-        self.gyro_x = np.array([], dtype=np.float64)
-        self.gyro_y = np.array([], dtype=np.float64)
-        self.gyro_z = np.array([], dtype=np.float64)
-        self.timestamps = np.array([], dtype=np.float64)
-        
-    def add_measurement(self, t, ax, ay, az, gx, gy, gz):
-        """Add a new IMU measurement"""
-        self.timestamps = np.append(self.timestamps, t)
-        self.acc_x = np.append(self.acc_x, ax)
-        self.acc_y = np.append(self.acc_y, ay)
-        self.acc_z = np.append(self.acc_z, az)
-        self.gyro_x = np.append(self.gyro_x, gx)
-        self.gyro_y = np.append(self.gyro_y, gy)
-        self.gyro_z = np.append(self.gyro_z, gz)
-        
-        # Keep only last 1000 measurements
-        max_samples = 1000
-        if len(self.timestamps) > max_samples:
-            self.timestamps = self.timestamps[-max_samples:]
-            self.acc_x = self.acc_x[-max_samples:]
-            self.acc_y = self.acc_y[-max_samples:]
-            self.acc_z = self.acc_z[-max_samples:]
-            self.gyro_x = self.gyro_x[-max_samples:]
-            self.gyro_y = self.gyro_y[-max_samples:]
-            self.gyro_z = self.gyro_z[-max_samples:]
-
-    def clear(self):
-        """Clear all stored measurements"""
-        self.acc_x = np.array([], dtype=np.float64)
-        self.acc_y = np.array([], dtype=np.float64)
-        self.acc_z = np.array([], dtype=np.float64)
-        self.gyro_x = np.array([], dtype=np.float64)
-        self.gyro_y = np.array([], dtype=np.float64)
-        self.gyro_z = np.array([], dtype=np.float64)
-        self.timestamps = np.array([], dtype=np.float64)
-        
-    def __str__(self):
-        """Return string representation of IMU data"""
-        return (f"IMU Data:\n"
-                f"  Timestamps: {self.timestamps[-5:] if len(self.timestamps) > 0 else []}\n"
-                f"  Accelerometer (x,y,z): \n"
-                f"    x: {self.acc_x[-5:] if len(self.acc_x) > 0 else []}\n" 
-                f"    y: {self.acc_y[-5:] if len(self.acc_y) > 0 else []}\n"
-                f"    z: {self.acc_z[-5:] if len(self.acc_z) > 0 else []}\n"
-                f"  Gyroscope (x,y,z): \n"
-                f"    x: {self.gyro_x[-5:] if len(self.gyro_x) > 0 else []}\n"
-                f"    y: {self.gyro_y[-5:] if len(self.gyro_y) > 0 else []}\n"
-                f"    z: {self.gyro_z[-5:] if len(self.gyro_z) > 0 else []}")
-
-    def __repr__(self):
-        """Return string representation of IMU data object"""
-        return f"IMUData(samples={len(self.timestamps)})"
 
 class Tag(UWBDevice):
     _next_id = 1  # Class variable to track next available ID
@@ -308,8 +142,20 @@ class Tag(UWBDevice):
         # Use geometric ray-tracing based ranging if enabled, else fallback
         if getattr(channel_conditions, 'use_ray_tracing', False):
             final_distance, noise = channel_conditions.measure_distance_geometric(anchor.position, self.position)
+            full_result = None
         else:
-            final_distance, noise = channel_conditions.measure_distance(true_distance, is_los, anchor_pos=anchor.position)
+            # Single call to measure_distance_detailed — avoids the previous
+            # pattern of calling measure_distance + measure_distance_detailed which
+            # effectively ran the entire channel model TWICE per anchor.
+            try:
+                full_result = channel_conditions.measure_distance_detailed(
+                    true_distance, is_los, anchor_pos=anchor.position)
+                final_distance = full_result.measured_distance
+                noise = full_result.measurement_std
+            except AttributeError:
+                final_distance, noise = channel_conditions.measure_distance(
+                    true_distance, is_los, anchor_pos=anchor.position)
+                full_result = None
         
         if mode == "SS-TWR":
             # Single-Sided TWR
@@ -391,31 +237,6 @@ class Tag(UWBDevice):
         
         messages.append(f"Calculated distance: {final_distance:.3f}m")
         messages.append("-" * 50)  # Separator between measurements
-        
-        # In a real simulation, we expect the 'measured_distance' to match 'final_distance' (plus noise)
-        # But 'final_distance' comes from channel_model.measure_distance_detailed (Physics)
-        # 'measured_distance' comes from TWR logic (Protocol)
-        # To connect them, we should pass the physics result.
-        
-        # For now, we return the physics result 'final_distance' as the primary measurement,
-        # but technically TWR protocol should yield it. 
-        # The 'channel_conditions.measure_distance' call at the top serves as the "Physics Oracle".
-        
-        # We need to return the FULL RangingResult if available.
-        # Since 'measure_distance' returns (dist, std), we might need to check if it was 'measure_distance_detailed'
-        
-        # We need to re-call measure_distance_detailed to get the full object if we want CIR.
-        # The previous call: 
-        #   final_distance, noise = channel_conditions.measure_distance(true_distance, is_los)
-        # wrapped it.
-        
-        # Let's direct call measure_distance_detailed if possible to get CIR
-        try:
-             full_result = channel_conditions.measure_distance_detailed(true_distance, is_los)
-             # Use values from full result to ensure consistency
-             final_distance = full_result.measured_distance
-        except AttributeError:
-             full_result = None
         
         return final_distance, messages, full_result
 

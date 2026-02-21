@@ -5,40 +5,7 @@ import numpy as np
 from src.gui.theme import COLORS
 from src.gui.widgets import PersistentWindow, TimeWindowSlider, create_themed_plot
 
-class IMUData:
-    """
-    IMUData class:
-    Contains the data for the IMU.
-    """
-    def __init__(self):
-        # Initialize as lists instead of numpy arrays
-        self.timestamps = []
-        self.acc_x = []
-        self.acc_y = []
-        self.acc_z = []
 
-        self.gyro_x = []
-        self.gyro_y = []
-        self.gyro_z = []
-    
-    def add_measurement(self, timestamp, ax, ay, az, gx, gy, gz):
-        self.timestamps.append(timestamp)
-        self.acc_x.append(ax)
-        self.acc_y.append(ay)
-        self.acc_z.append(az)
-        self.gyro_x.append(gx)
-        self.gyro_y.append(gy)
-        self.gyro_z.append(gz)
-        
-        # Keep only last 1000 measurements
-        if len(self.timestamps) > 1000:
-            self.timestamps = self.timestamps[-1000:]
-            self.acc_x = self.acc_x[-1000:]
-            self.acc_y = self.acc_y[-1000:]
-            self.acc_z = self.acc_z[-1000:]
-            self.gyro_x = self.gyro_x[-1000:]
-            self.gyro_y = self.gyro_y[-1000:]
-            self.gyro_z = self.gyro_z[-1000:]
             
 class IMUWindow(PersistentWindow):
     def __init__(self, parent=None):
@@ -112,7 +79,7 @@ class IMUWindow(PersistentWindow):
             return
 
         imu_data = self.parent_app.tag.imu_data
-        if len(imu_data.timestamps) == 0:
+        if len(imu_data) == 0:
             # No data yet, show initial range from 0 to time_window
             start_time = 0.0
             end_time = self.time_window
@@ -136,7 +103,7 @@ class IMUWindow(PersistentWindow):
 
         imu_data = self.parent_app.tag.imu_data
         
-        if len(imu_data.timestamps) == 0:
+        if len(imu_data) == 0:
             # Clear plots if no data
             self.reset_plots()
             return
@@ -145,20 +112,20 @@ class IMUWindow(PersistentWindow):
         latest_time = imu_data.timestamps[-1]
         start_time = max(0.0, latest_time - self.time_window)
         
-        # Convert lists to numpy arrays and find indices for the time window
-        timestamps = np.array(imu_data.timestamps)
+        # Ring buffer properties already return numpy arrays
+        timestamps = imu_data.timestamps
         mask = timestamps >= start_time
         timestamps = timestamps[mask]
         
         # Update accelerometer plots
-        self.acc_x_curve.setData(timestamps, np.array(imu_data.acc_x)[mask])
-        self.acc_y_curve.setData(timestamps, np.array(imu_data.acc_y)[mask])
-        self.acc_z_curve.setData(timestamps, np.array(imu_data.acc_z)[mask])
+        self.acc_x_curve.setData(timestamps, imu_data.acc_x[mask])
+        self.acc_y_curve.setData(timestamps, imu_data.acc_y[mask])
+        self.acc_z_curve.setData(timestamps, imu_data.acc_z[mask])
         
         # Update gyroscope plots
-        self.gyro_x_curve.setData(timestamps, np.array(imu_data.gyro_x)[mask])
-        self.gyro_y_curve.setData(timestamps, np.array(imu_data.gyro_y)[mask])
-        self.gyro_z_curve.setData(timestamps, np.array(imu_data.gyro_z)[mask])
+        self.gyro_x_curve.setData(timestamps, imu_data.gyro_x[mask])
+        self.gyro_y_curve.setData(timestamps, imu_data.gyro_y[mask])
+        self.gyro_z_curve.setData(timestamps, imu_data.gyro_z[mask])
         
         # Synchronize time axis with current data
         self.sync_time_axis()

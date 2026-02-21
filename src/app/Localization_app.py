@@ -50,6 +50,10 @@ from src.gui.windows.cir_window import CIRWindow
 from src.api import TrainingDataAPI
 from src.gui.windows.algorithm_creation_window import AlgorithmCreationWindow
 
+# Error handling
+from src.core.error_handler import SimulationErrorHandler
+from src.gui.widgets.error_overlay import ErrorOverlayWidget
+
 
 class LocalizationApp(QMainWindow):
     """Main application window - now using modular components"""
@@ -172,6 +176,13 @@ class LocalizationApp(QMainWindow):
         # Initialize timer first (before initialize_simulation which may use it)
         self.timer = QTimer()
         self.timer.timeout.connect(self.simulation_manager.update_simulation)
+        
+        # --- Error handling system ---
+        self.error_handler = SimulationErrorHandler(self)
+        self.error_overlay = ErrorOverlayWidget(self.centralWidget())
+        self.error_handler.error_occurred.connect(self.error_overlay.show_error)
+        self.error_overlay.restart_requested.connect(self._restart_after_error)
+        self.simulation_manager.error_handler = self.error_handler
         
         # Initialize simulation
         self.initialize_simulation()
@@ -789,6 +800,20 @@ class LocalizationApp(QMainWindow):
         #     self.elapsed_time_display.setText(f"0.00s / {max_str}")
         
         # NOTE: Timer is NOT started here - simulation starts paused
+    
+    def _restart_after_error(self):
+        """Full recovery after a simulation error."""
+        # Clear error state
+        self.error_handler.clear_error()
+        self.error_overlay.hide()
+        # Perform full simulation restart
+        self.restart_simulation()
+    
+    def resizeEvent(self, event):
+        """Keep error overlay sized to the central widget on window resize."""
+        super().resizeEvent(event)
+        if hasattr(self, 'error_overlay') and self.error_overlay and self.centralWidget():
+            self.error_overlay.setGeometry(self.centralWidget().rect())
     
     # ==================== Event Handlers ====================
     

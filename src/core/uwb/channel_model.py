@@ -173,7 +173,7 @@ class UWBChannelModel:
         
         return total_loss_db, breakdown
 
-    def generate_unified_cir(self, distance: float, is_los: bool, return_on_device: bool = False, anchor_pos: Optional[Position] = None) -> Tuple[np.ndarray, np.ndarray, float]:
+    def generate_unified_cir(self, distance: float, is_los: bool, return_on_device: bool = False, anchor_pos: Optional[Position] = None, avg_loss_db: Optional[float] = None) -> Tuple[np.ndarray, np.ndarray, float]:
         """
         Generate the Unified UWB Channel Impulse Response h(t, f).
         
@@ -238,9 +238,10 @@ class UWBChannelModel:
         n_rays_per_cluster = np.maximum(1, np.random.poisson(5, size=n_clusters))
         total_rays = int(np.sum(n_rays_per_cluster))
         
-        # Pre-calc reference amplitude
-        avg_loss_db, _ = self.calculate_path_loss_and_shadowing(
-            distance, self.uwb_params.center_frequency, is_los)
+        # Pre-calc reference amplitude (use caller-provided value to avoid duplicate computation)
+        if avg_loss_db is None:
+            avg_loss_db, _ = self.calculate_path_loss_and_shadowing(
+                distance, self.uwb_params.center_frequency, is_los)
         avg_amp = 10 ** (-avg_loss_db / 20)
         
         # Generate all ray inter-arrival intervals at once
@@ -248,31 +249,39 @@ class UWBChannelModel:
         all_fading = np.random.rayleigh(scale=1.0, size=total_rays)
         all_phases = np.random.uniform(0, 2*np.pi, size=total_rays)
         
-        # Build path arrays using vectorized operations
-        path_delays = np.empty(total_rays)
-        path_amplitudes = np.empty(total_rays)
-        path_phases = all_phases
+        # Build path arrays — FULLY VECTORIZED (no Python for-loop)
+        # Expand cluster onset times to per-ray arrays via np.repeat
+        cluster_indices = np.repeat(np.arange(n_clusters), n_rays_per_cluster)
+        T_per_ray = np.repeat(T, n_rays_per_cluster)
         
-        idx = 0
-        for k in range(n_clusters):
-            n_rays = int(n_rays_per_cluster[k])
-            Tk = T[k]
-            cluster_scale = np.exp(-(Tk - t0) / Gamma)
-            
-            # Vectorized ray delays within this cluster
-            ray_intervals = all_ray_intervals[idx:idx+n_rays].copy()
-            ray_intervals[0] = 0.0  # First ray at cluster onset
-            tau_rays = np.cumsum(ray_intervals)
-            
-            # Absolute delays
-            path_delays[idx:idx+n_rays] = Tk + tau_rays
-            
-            # Vectorized ray amplitudes
-            ray_scales = np.exp(-tau_rays / gamma)
-            power_scales = cluster_scale * ray_scales
-            path_amplitudes[idx:idx+n_rays] = avg_amp * np.sqrt(power_scales) * all_fading[idx:idx+n_rays]
-            
-            idx += n_rays
+        # Cluster decay scale per ray
+        cluster_scales = np.exp(-(T_per_ray - t0) / Gamma)
+        
+        # Per-cluster cumulative ray delays:
+        # Zero-out first ray interval in each cluster, then cumsum within segments
+        all_ray_intervals_copy = all_ray_intervals.copy()
+        # Find first ray index in each cluster using cumsum of n_rays_per_cluster
+        cluster_starts = np.zeros(n_clusters, dtype=np.intp)
+        np.cumsum(n_rays_per_cluster[:-1], out=cluster_starts[1:])
+        all_ray_intervals_copy[cluster_starts] = 0.0
+        
+        # Global cumsum then subtract per-cluster baseline to get within-cluster cumsum
+        global_cumsum = np.cumsum(all_ray_intervals_copy)
+        cluster_baselines = np.repeat(
+            np.concatenate(([0.0], global_cumsum[cluster_starts[1:] - 1])) if n_clusters > 1
+            else np.array([0.0]),
+            n_rays_per_cluster
+        )
+        tau_rays = global_cumsum - cluster_baselines
+        
+        # Absolute path delays
+        path_delays = T_per_ray + tau_rays
+        
+        # Ray amplitude decay within each cluster
+        ray_scales = np.exp(-tau_rays / gamma)
+        power_scales = cluster_scales * ray_scales
+        path_amplitudes = avg_amp * np.sqrt(power_scales) * all_fading
+        path_phases = all_phases
         
         # Sort by delay
         sort_idx = np.argsort(path_delays)
@@ -405,7 +414,7 @@ class UWBChannelModel:
             
         return noise_error + bias, total_std
 
-    def measure_distance_detailed(self, true_distance: float, is_los: bool = True, anchor_pos: Optional[Position] = None) -> RangingResult:
+    def measure_distance_detailed(self, true_distance: float, is_los: bool = True, anchor_pos: Optional[Position] = None, compute_stats: bool = True) -> RangingResult:
         """
         Perform complete UWB ranging simulation.
         
@@ -447,7 +456,7 @@ class UWBChannelModel:
         # However, for computational speed in a "simulation" loop, we often abstract this.
         # Given the request for "Unified C.I.R", we simulate it.
         
-        t_vec, h_t, t0_true = self.generate_unified_cir(true_distance, is_los, anchor_pos=anchor_pos)
+        t_vec, h_t, t0_true = self.generate_unified_cir(true_distance, is_los, anchor_pos=anchor_pos, avg_loss_db=path_loss_db)
         
         # --- 3. Detection ---
         toa_est_raw, detected_flag = self.detect_toa(t_vec, h_t, snr_linear)
@@ -492,36 +501,37 @@ class UWBChannelModel:
         # Breakdown
         total_error = measured_dist - true_distance
         
-        # --- 5. Channel Statistics (GPU-accelerated) ---
-        xp = get_array_module()
-        use_gpu = gpu_manager.should_use_gpu(len(h_t))
+        # --- 5. Channel Statistics (GPU-accelerated, only when requested) ---
+        mean_excess_delay = 0.0
+        rms_delay_spread = 0.0
+        kurtosis = 0.0
         
-        if use_gpu:
-            t_g, h_g = to_gpu(t_vec), to_gpu(h_t)
-        else:
-            t_g, h_g = xp.asarray(t_vec), xp.asarray(h_t)
-        
-        pdp = xp.abs(h_g)**2
-        total_energy = xp.sum(pdp)
-        
-        if float(to_cpu(total_energy)) > 0:
-            pdp_norm = pdp / total_energy
-            weighted_t = xp.sum(t_g * pdp_norm)
-            mean_excess_delay = float(to_cpu(weighted_t - t_g[0]))
-            second_moment = xp.sum((t_g**2) * pdp_norm)
-            rms_delay_spread = float(to_cpu(xp.sqrt(xp.maximum(second_moment - weighted_t**2, 0.0))))
+        if compute_stats:
+            xp = get_array_module()
+            use_gpu = gpu_manager.should_use_gpu(len(h_t))
             
-            mag = xp.abs(h_g)
-            mag_mean = xp.mean(mag)
-            mag_std = xp.std(mag)
-            if float(to_cpu(mag_std)) > 0:
-                 kurtosis = float(to_cpu(xp.mean(((mag - mag_mean) / mag_std) ** 4)))
+            if use_gpu:
+                t_g, h_g = to_gpu(t_vec), to_gpu(h_t)
             else:
-                 kurtosis = 0.0
-        else:
-            mean_excess_delay = 0.0
-            rms_delay_spread = 0.0
-            kurtosis = 0.0
+                t_g, h_g = xp.asarray(t_vec), xp.asarray(h_t)
+            
+            pdp = xp.abs(h_g)**2
+            total_energy = xp.sum(pdp)
+            
+            if float(to_cpu(total_energy)) > 0:
+                pdp_norm = pdp / total_energy
+                weighted_t = xp.sum(t_g * pdp_norm)
+                mean_excess_delay = float(to_cpu(weighted_t - t_g[0]))
+                second_moment = xp.sum((t_g**2) * pdp_norm)
+                rms_delay_spread = float(to_cpu(xp.sqrt(xp.maximum(second_moment - weighted_t**2, 0.0))))
+                
+                mag = xp.abs(h_g)
+                mag_mean = xp.mean(mag)
+                mag_std = xp.std(mag)
+                if float(to_cpu(mag_std)) > 0:
+                     kurtosis = float(to_cpu(xp.mean(((mag - mag_mean) / mag_std) ** 4)))
+                else:
+                     kurtosis = 0.0
 
         return RangingResult(
             measured_distance=measured_dist,
@@ -549,9 +559,9 @@ class UWBChannelModel:
             path_loss_breakdown=pl_breakdown
         )
         
-    def measure_distance(self, true_distance: float, is_los: bool = True, anchor_pos: Optional[Position] = None) -> Tuple[float, float]:
+    def measure_distance(self, true_distance: float, is_los: bool = True, anchor_pos: Optional[Position] = None, compute_stats: bool = True) -> Tuple[float, float]:
         """Simple interface for backward compatibility."""
-        res = self.measure_distance_detailed(true_distance, is_los, anchor_pos=anchor_pos)
+        res = self.measure_distance_detailed(true_distance, is_los, anchor_pos=anchor_pos, compute_stats=compute_stats)
         return res.measured_distance, res.measurement_std
 
     def measure_distance_batch(self, true_distances: np.ndarray, is_los_array: np.ndarray, anchor_positions: Optional[List[Position]] = None) -> List[RangingResult]:

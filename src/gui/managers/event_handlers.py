@@ -349,11 +349,9 @@ class EventHandler:
         anchor = self.find_nearest_anchor(x, y)
         if anchor:
             if len(self.parent.anchors) > 3:
-                # Delete the anchor
-                self.parent.anchors.remove(anchor)
+                # Delete the anchor (only once)
                 self.parent.anchors.remove(anchor)
                 self.parent.renormalize_anchors()
-                # Stay in delete mode - don't reset deleting_anchor flag
                 # Stay in delete mode - don't reset deleting_anchor flag
             else:
                 # Cannot delete - minimum 3 anchors required

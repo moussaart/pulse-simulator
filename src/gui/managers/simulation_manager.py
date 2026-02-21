@@ -10,6 +10,11 @@ from src.core.localization import LocalizationAlgorthimes, Alghortimes_doc
 from src.core.localization.base_algorithm import BaseLocalizationAlgorithm, AlgorithmInput, AlgorithmOutput
 from src.gui.managers.simulation_recorder import SimulationRecorder
 from src.core.parallel.gpu_backend import gpu_manager
+from src.core.exceptions import (
+    SimulationError, NumericalError, ConvergenceError,
+    MeasurementError, InputValidationError,
+)
+from src.core.error_handler import SimulationErrorHandler
 import inspect
 import logging
 
@@ -56,6 +61,16 @@ class SimulationManager:
         # Cache for instantiated algorithm classes
         self.algorithm_instances = {}
         
+        # Cache algorithm dispatch table (avoids re-instantiation every frame)
+        self._algorithm_methods = Alghortimes_doc().get_algorithm_methods()
+        
+        # Error handler (set by parent after construction)
+        self.error_handler = None
+        
+        # Consecutive measurement failure counter
+        self._consecutive_measurement_failures = 0
+        self._MAX_CONSECUTIVE_FAILURES = 10
+        
     def update_simulation(self):
         """Main simulation update loop"""
         try:
@@ -68,14 +83,26 @@ class SimulationManager:
                     return
                 
                 # Update tag position
-                MotionController.update_tag_position(
-                    tag=self.parent.tag,
-                    movement_pattern=self.parent.movement_pattern,
-                    movement_speed=self.parent.movement_speed,
-                    t=self.simulation_time,
-                    frequence=1 / self.parent.dt,
-                    point=self.parent.point
-                )
+                try:
+                    MotionController.update_tag_position(
+                        tag=self.parent.tag,
+                        movement_pattern=self.parent.movement_pattern,
+                        movement_speed=self.parent.movement_speed,
+                        t=self.simulation_time,
+                        frequence=1 / self.parent.dt,
+                        point=self.parent.point
+                    )
+                except SimulationError:
+                    raise
+                except Exception as e:
+                    raise SimulationError.from_exception(e, "tag position update")
+                
+                # Validate tag position is finite
+                if not (np.isfinite(self.parent.tag.position.x) and np.isfinite(self.parent.tag.position.y)):
+                    raise NumericalError(
+                        user_message="The tag position became invalid (NaN or Infinity) during motion update.",
+                        details={"x": self.parent.tag.position.x, "y": self.parent.tag.position.y},
+                    )
                 
                 # Update anchor visualization
                 self.parent.plot_manager.update_anchor_visualization(
@@ -89,26 +116,49 @@ class SimulationManager:
                 if hasattr(self.parent, 'nlos_manager'):
                     self.parent.nlos_manager.update_moving_visualizations()
                 
-                # Update IMU window - handled by its own timer now
-                # if self.parent.imu_window is not None:
-                #    self.parent.imu_window.update_plots()
-                
                 # Get measurements
                 measurements, is_los, valid = self.get_measurements()
                 
                 if not valid:
+                    self._consecutive_measurement_failures += 1
+                    if self._consecutive_measurement_failures >= self._MAX_CONSECUTIVE_FAILURES:
+                        raise MeasurementError(
+                            user_message=(
+                                f"Measurements have failed {self._consecutive_measurement_failures} "
+                                f"times in a row. The distance measurement system may be misconfigured "
+                                f"or the tag may be outside the coverage area of all anchors."
+                            ),
+                            details={"consecutive_failures": self._consecutive_measurement_failures},
+                        )
                     return
+                self._consecutive_measurement_failures = 0
                 
                 # Estimate position
                 estimated_pos = self.estimate_position(measurements, is_los)
                 
+                # Validate estimated position
                 if not (np.isfinite(estimated_pos[0]) and np.isfinite(estimated_pos[1])):
-                    return
+                    raise NumericalError(
+                        user_message=(
+                            f"The '{self.parent.algorithm}' algorithm produced an invalid position estimate "
+                            f"(NaN or Infinity). This typically means the algorithm has become "
+                            f"numerically unstable with the current parameters."
+                        ),
+                        details={"algorithm": self.parent.algorithm, "position": estimated_pos},
+                    )
+                
+                # Check for divergence (position way outside reasonable bounds)
+                if self.error_handler:
+                    SimulationErrorHandler.check_divergence(estimated_pos, bounds=1e4, label="position estimate")
                 
                 # Calculate error
                 true_pos = (self.parent.tag.position.x, self.parent.tag.position.y)
                 error = np.sqrt((estimated_pos[0] - true_pos[0])**2 + 
                                (estimated_pos[1] - true_pos[1])**2)
+                
+                # Validate error value
+                if not np.isfinite(error):
+                    error = 0.0  # Safe fallback for display
                 
                 # AI Training Data Collection Hook
                 if hasattr(self.parent, 'training_api') and self.parent.training_api.is_collecting:
@@ -154,8 +204,30 @@ class SimulationManager:
                 # Update visualizations
                 self.update_visualizations(estimated_pos, error, measurements)
                 
+        except SimulationError as e:
+            self._handle_simulation_error(e)
         except Exception as e:
-            print(f"Error in simulation update: {e}")
+            self._handle_simulation_error(
+                SimulationError.from_exception(e, context="simulation loop")
+            )
+    
+    def _handle_simulation_error(self, error):
+        """Stop the simulation and notify the error handler."""
+        self.is_paused = True
+        if hasattr(self.parent, 'timer'):
+            self.parent.timer.stop()
+        
+        # Update pause button to indicate error state
+        if hasattr(self.parent, 'pause_button'):
+            self.parent.pause_button.setChecked(True)
+            self.parent.pause_button.setText("⚠️ Error")
+            self.parent.pause_button.setToolTip("Simulation stopped due to error")
+        
+        if self.error_handler:
+            self.error_handler.handle_error(error)
+        else:
+            # Fallback: print to console if no error handler is set
+            logger.error(f"Simulation error (no handler): {error}")
     
     def _on_simulation_ended(self):
         """Handle simulation reaching its duration limit"""
@@ -209,8 +281,10 @@ class SimulationManager:
         self.simulation_time = 0
         self.simulation_ended = False
         self.is_paused = True
-        self.is_paused = True
         self.recorder.clear()
+        
+        # Reset error tracking
+        self._consecutive_measurement_failures = 0
         
         # Hide history toggle and export button
         if hasattr(self.parent, 'history_toggle'):
@@ -225,7 +299,7 @@ class SimulationManager:
                 if hasattr(instance, 'initialize'):
                     instance.initialize()
             except Exception as e:
-                print(f"Error resetting algorithm {name}: {e}")
+                logger.warning(f"Error resetting algorithm {name}: {e}")
     
     def _measure_single_anchor(self, anchor):
         """
@@ -389,7 +463,26 @@ class SimulationManager:
         if len(measurements) < 3:
             return (self.parent.tag.position.x, self.parent.tag.position.y)
         
-        algorithm_methods = Alghortimes_doc().get_algorithm_methods()
+        # Validate measurement values before passing to algorithms
+        for i, m in enumerate(measurements):
+            if not np.isfinite(m):
+                raise NumericalError(
+                    user_message=(
+                        f"Measurement from anchor {i+1} is invalid (NaN or Infinity). "
+                        f"The channel model may have produced an unrealistic value."
+                    ),
+                    details={"measurement_index": i, "value": m},
+                )
+            if m < 0:
+                raise InputValidationError(
+                    user_message=(
+                        f"Measurement from anchor {i+1} is negative ({m:.4f}m). "
+                        f"Distance measurements must be positive."
+                    ),
+                    details={"measurement_index": i, "value": m},
+                )
+        
+        algorithm_methods = self._algorithm_methods
         method = algorithm_methods.get(self.parent.algorithm)
         
         u = np.array([self.parent.tag.imu_data.acc_x[-1], 
@@ -433,10 +526,10 @@ class SimulationManager:
                         
                     return output.position
                     
+            except SimulationError:
+                raise  # re-raise our own errors
             except Exception as e:
-                print(f"Error running custom algorithm {self.parent.algorithm}: {e}")
-                # Fallback to current pos
-                return (self.parent.tag.position.x, self.parent.tag.position.y)
+                raise SimulationError.from_exception(e, f"custom algorithm '{self.parent.algorithm}'")
 
         if method:
             if "Improved Adaptive EKF" in self.parent.algorithm:

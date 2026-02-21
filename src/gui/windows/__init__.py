@@ -4,7 +4,8 @@ GUI Windows Package: Contains all window and dialog components.
 Note: comparison_window is not imported here to avoid circular imports.
 """
 from .Distance_plot_window import DistancePlotsWindow
-from .imu_window import IMUWindow, IMUData
+from .imu_window import IMUWindow
+from src.core.uwb.imu import IMUData
 from .nlos_config_window import NLOSConfigWindow, NLOSConfigManager
 
 # - filter_selection_dialog
