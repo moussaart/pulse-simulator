@@ -94,7 +94,7 @@ class LocalizationApp(QMainWindow):
             from src.utils.resource_loader import get_resource_path
             
             # Use safe resource path loader
-            csv_path = get_resource_path(os.path.join('data','UWB data', 'uwb_channel_config_database.csv'))
+            csv_path = get_resource_path(os.path.join('src','UWB data', 'uwb_channel_config_database.csv'))
             
             self.loaded_configs = load_channel_configs(csv_path)
             print(f"Loaded {len(self.loaded_configs)} channel configurations from CSV")
