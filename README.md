@@ -10,8 +10,8 @@
 </p>
 
 <p align="center">
-  <a href="https://www.linkedin.com/company/granite-team-irisa/" target="_blank">
-    <img src="https://img.shields.io/badge/Granite_Team-IRISA-0077B5?style=for-the-badge&logo=linkedin&logoColor=white" alt="Granite Team LinkedIn"/>
+  <a href="https://www.linkedin.com/company/granit-team-irisa/" target="_blank">
+    <img src="https://img.shields.io/badge/Granit_Team-IRISA-0077B5?style=for-the-badge&logo=linkedin&logoColor=white" alt="Granit Team LinkedIn"/>
   </a>
   &nbsp;
   <img src="https://img.shields.io/badge/Python-3.8+-3776AB?style=for-the-badge&logo=python&logoColor=white" alt="Python 3.8+"/>
@@ -277,7 +277,7 @@ PULSE-project/
 
 ### Research Context
 
-PULSE was developed as part of a **PhD research project** focused on UWB-based indoor localization, carried out within the **[Granite Team](https://www.linkedin.com/company/granit-team-at-irisa-laboratory/posts/?feedView=all)** at **[IRISA](https://www.irisa.fr)** (Institut de Recherche en Informatique et Systèmes Aléatoires), Rennes, France.
+PULSE was developed as part of a **PhD research project** focused on UWB-based indoor localization, carried out within the **[Granit Team](https://www.linkedin.com/company/granit-team-at-irisa-laboratory/posts/?feedView=all)** at **[IRISA](https://www.irisa.fr)** (Institut de Recherche en Informatique et Systèmes Aléatoires), Rennes, France.
 
 This project has benefited from State aid managed by the **Agence Nationale de la Recherche (ANR)** under the **"France 2030"** investment program, bearing the reference **ANR-23-CMAS-0023** (**CMA RIS3 Project**), and is co-funded by **Lannion-Trégor Communauté (LTC)**.
 
@@ -289,7 +289,7 @@ This project has benefited from State aid managed by the **Agence Nationale de l
 
 | Role | Name / Link |
 |---|---|
-| **Research Team** | [Granite Team – IRISA](https://www.linkedin.com/company/granit-team-at-irisa-laboratory/posts/?feedView=all) |
+| **Research Team** | [Granit Team – IRISA](https://www.linkedin.com/company/granit-team-at-irisa-laboratory/posts/?feedView=all) |
 | **Lab** | [IRISA – Institut de Recherche en Informatique et Systèmes Aléatoires](https://www.irisa.fr) |
 
 ---
@@ -303,7 +303,7 @@ Special thanks to our funders and partners:
 *   **ANR / France 2030** : ANR-23-CMAS-0023
 *   **[Lannion-Trégor Communauté (LTC)](https://www.lannion-tregor.com)** : for co-funding this research
 *   **IRISA / INRIA / CNRS** : for research infrastructure and institutional support
-*   **Granite Team at IRISA** : for all contributors and researchers involved
+*   **Granit Team at IRISA** : for all contributors and researchers involved
 
 ---
 
@@ -314,5 +314,5 @@ This project is licensed under the **[MIT License](https://opensource.org/licens
 ---
 
 <p align="center">
-  Made with ❤️ by the <a href="https://www.linkedin.com/company/granite-team-irisa/">Granite Team</a> at <a href="https://www.irisa.fr">IRISA</a>.
+  Made with ❤️ by the <a href="https://www.linkedin.com/company/granit-team-irisa/">Granit Team</a> at <a href="https://www.irisa.fr">IRISA</a>.
 </p>
