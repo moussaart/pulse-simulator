@@ -177,7 +177,7 @@ The simulator supports a wide range of algorithms, from basic geometric solution
 | **NLOS-Aware AEKF** | Detects and de-weights NLOS measurements | ✅✅ |
 | **IMU-Fusion (IA-NAEKF)** | Integrates accelerometer data to bridge UWB gaps | ✅✅ |
 | **Unscented Kalman Filter (UKF)** | Captures non-linear transformations via sigma points | ✅ |
-| **Particle Filter (PF)** | Monte Carlo method for highly non-linear environments | ✅✅ |
+
 
 For mathematical definitions and derivations, see **[Localization Algorithms](docs/localization_algorithms.md)**.
 
