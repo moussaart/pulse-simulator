@@ -6,6 +6,7 @@ build/
 dist/
 env/
 venv/
+myenv/
 .idea/
 .vscode/
 node_modules/
@@ -15,4 +16,5 @@ coverage.xml
 .DS_Store
 *.log
 .coverage
+
 *.spec
