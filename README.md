@@ -1,5 +1,3 @@
-
-
 <p align="center">
   <img src="docs/assets/panal.png" alt="PULSE Panel" width="100%"/>
 </p>
@@ -19,6 +17,10 @@
   <img src="https://img.shields.io/badge/PyQt5-GUI-41CD52?style=for-the-badge&logo=qt&logoColor=white" alt="PyQt5"/>
   &nbsp;
   <img src="https://img.shields.io/badge/CUDA-GPU_Accelerated-76B900?style=for-the-badge&logo=nvidia&logoColor=white" alt="CUDA"/>
+  &nbsp;
+  <a href="https://moussaart.github.io/pulse-simulator/" target="_blank">
+    <img src="https://img.shields.io/badge/Docs-Website-4A154B?style=for-the-badge&logo=read-the-docs&logoColor=white" alt="Documentation Website"/>
+  </a>
 </p>
 
 ---
@@ -26,6 +28,8 @@
 ## 📋 Overview
 
 **PULSE** stands for **Python Ultra-wideband Localization Simulation Engine**.
+
+🌐 **[Official Website & Documentation](https://moussaart.github.io/pulse-simulator/)**
 
 The **PULSE Simulation Platform** is a high-fidelity environment designed to simulate, visualize, and analyze Ultra-Wideband (UWB) indoor localization systems. It bridges the gap between theoretical algorithm design and real-world physical discrepancies by incorporating a sophisticated channel model that accounts for multipath propagation, non-line-of-sight (NLOS) conditions, and dynamic environmental factors.
 
