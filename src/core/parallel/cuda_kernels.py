@@ -686,6 +686,14 @@ def batch_measure_distances(
         measured_dist = (toa_est_raw * c) + noise_err_m + dist_offset
         total_error = measured_dist - dist
         
+        # Filter unrealistic spikes
+        if is_los and abs(total_error) > 0.6:
+            total_error = 0.6 if total_error > 0 else -0.6
+            measured_dist = dist + total_error
+        elif not is_los and abs(total_error) > 0.8:
+            total_error = 0.8 if total_error > 0 else -0.8
+            measured_dist = dist + total_error
+        
         stats = stats_list[i]
         
         # Helper to safely get scalar from potential GPU array or numpy array

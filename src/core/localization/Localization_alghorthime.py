@@ -134,7 +134,7 @@ class LocalizationAlgorthimes():
             
             # Use provided R or default
             if R is None:
-                R = np.eye(len(measurements), dtype=float) * 0.2  # Slightly higher default noise
+                R = np.eye(len(measurements), dtype=float) * 0.09 # Slightly higher default noise
             
             # Kalman gain
             S = H @ ekf_P @ H.T + R

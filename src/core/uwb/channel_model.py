@@ -501,6 +501,14 @@ class UWBChannelModel:
         # Breakdown
         total_error = measured_dist - true_distance
         
+        # Filter unrealistic spikes
+        if is_los and abs(total_error) > 0.6:
+            total_error = 0.6 if total_error > 0 else -0.6
+            measured_dist = true_distance + total_error
+        elif not is_los and abs(total_error) > 0.8:
+            total_error = 0.8 if total_error > 0 else -0.8
+            measured_dist = true_distance + total_error
+        
         # --- 5. Channel Statistics (GPU-accelerated, only when requested) ---
         mean_excess_delay = 0.0
         rms_delay_spread = 0.0

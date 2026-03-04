@@ -263,8 +263,19 @@ class EventHandler:
         self.parent.target_point_btn.setChecked(False)
         self.toggle_target_point_mode()
         
-        if self.parent.pattern_combo.currentText() == "Fixed Point":
-            self.parent.trajectory_manager.update_trajectory_plan()
+        if hasattr(self.parent, 'fp_x_spin') and self.parent.fp_x_spin:
+            self.parent.fp_x_spin.blockSignals(True)
+            self.parent.fp_x_spin.setValue(x)
+            self.parent.fp_x_spin.blockSignals(False)
+            
+        if hasattr(self.parent, 'fp_y_spin') and self.parent.fp_y_spin:
+            self.parent.fp_y_spin.blockSignals(True)
+            self.parent.fp_y_spin.setValue(y)
+            self.parent.fp_y_spin.blockSignals(False)
+        
+        if hasattr(self.parent, 'pattern_combo') and self.parent.pattern_combo.currentText() == "Fixed Point":
+            if hasattr(self.parent, 'trajectory_manager'):
+                self.parent.trajectory_manager.update_trajectory_plan()
     
     def handle_right_click_drawing(self, x, y):
         """Handle right-click to finish drawing operations"""

@@ -122,12 +122,14 @@ class ControlPanelFactory:
         
         
         x_label = QLabel("X:")
-        x_coord = QSpinBox()
-        x_coord.setRange(-10, 10)
+        x_coord = QDoubleSpinBox()
+        x_coord.setDecimals(5)
+        x_coord.setRange(-100.0, 100.0)
         
         y_label = QLabel("Y:")
-        y_coord = QSpinBox()
-        y_coord.setRange(-10, 10)
+        y_coord = QDoubleSpinBox()
+        y_coord.setDecimals(5)
+        y_coord.setRange(-100.0, 100.0)
         
         coord_grid.addWidget(x_label, 0, 0)
         coord_grid.addWidget(x_coord, 0, 1)
@@ -472,10 +474,32 @@ class ControlPanelFactory:
         movement_layout.addWidget(speed_slider, 3, 1)
         movement_layout.addWidget(speed_value_label, 3, 2)
         
-        # Target point button
-        target_point_btn = ActionButton("🎯 Set Target Point", variant="secondary")
+        # Target point and fixed point config
+        fp_label = QLabel("Fixed Pt:")
+        fp_label.setToolTip("Target X/Y for Fixed Point Pattern")
+        
+        fp_x_spin = QDoubleSpinBox()
+        fp_x_spin.setRange(-1000.0, 1000.0)
+        fp_x_spin.setDecimals(3)
+        fp_x_spin.setPrefix("X: ")
+        fp_x_spin.setValue(0.0)
+        
+        fp_y_spin = QDoubleSpinBox()
+        fp_y_spin.setRange(-1000.0, 1000.0)
+        fp_y_spin.setDecimals(3)
+        fp_y_spin.setPrefix("Y: ")
+        fp_y_spin.setValue(0.0)
+        
+        fp_layout = QHBoxLayout()
+        fp_layout.setSpacing(4)
+        fp_layout.addWidget(fp_x_spin, 1)
+        fp_layout.addWidget(fp_y_spin, 1)
+        
+        target_point_btn = ActionButton("🎯 Set on Map", variant="secondary")
         target_point_btn.setCheckable(True)
-        movement_layout.addWidget(target_point_btn, 0, 2)
+        # Remove Fixed Pt: label from the grid to save space, rely on prefixes
+        movement_layout.addLayout(fp_layout, 4, 0, 1, 2)
+        movement_layout.addWidget(target_point_btn, 4, 2)
         
         movement_group.setLayout(movement_layout)
         
@@ -489,7 +513,9 @@ class ControlPanelFactory:
             'import_traj_btn': import_traj_btn,
             'delete_traj_btn': delete_traj_btn,
             'open_traj_folder_btn': open_traj_folder_btn,
-            'target_point_btn': target_point_btn
+            'target_point_btn': target_point_btn,
+            'fp_x_spin': fp_x_spin,
+            'fp_y_spin': fp_y_spin
         }
         
         return movement_group, widgets

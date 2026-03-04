@@ -157,6 +157,8 @@ class LocalizationApp(QMainWindow):
         self.draw_trajectory_btn = None
         self.import_traj_btn = None
         self.target_point_btn = None
+        self.fp_x_spin = None
+        self.fp_y_spin = None
         # Algorithm panel widgets
         self.algo_combo = None
         self.ma_window_spin = None
@@ -450,10 +452,15 @@ class LocalizationApp(QMainWindow):
             self.draw_trajectory_btn = movement_widgets['draw_trajectory_btn']
             self.import_traj_btn = movement_widgets['import_traj_btn']
             self.target_point_btn = movement_widgets['target_point_btn']
+            self.fp_x_spin = movement_widgets.get('fp_x_spin')
+            self.fp_y_spin = movement_widgets.get('fp_y_spin')
             
             self.pattern_combo.currentTextChanged.connect(self.update_movement_pattern)
             self.timestep_slider.valueChanged.connect(self.update_timestep_with_label)
             self.speed_slider.valueChanged.connect(self.update_speed_with_label)
+            if self.fp_x_spin and self.fp_y_spin:
+                self.fp_x_spin.valueChanged.connect(self.update_fixed_point_from_spinbox)
+                self.fp_y_spin.valueChanged.connect(self.update_fixed_point_from_spinbox)
             self.draw_trajectory_btn.clicked.connect(self.trajectory_manager.toggle_trajectory_drawing)
             self.import_traj_btn.clicked.connect(self.trajectory_manager.import_csv_trajectory)
             
@@ -1159,6 +1166,20 @@ class LocalizationApp(QMainWindow):
     
     # ==================== Parameter Updates ====================
     
+    def update_fixed_point_from_spinbox(self):
+        """Update target coordinates when spinbox values change"""
+        if hasattr(self, 'fp_x_spin') and hasattr(self, 'fp_y_spin') and self.fp_x_spin and self.fp_y_spin:
+            x = self.fp_x_spin.value()
+            y = self.fp_y_spin.value()
+            self.point = (x, y)
+            if hasattr(self, 'plot_items') and 'target_point_marker' in self.plot_items:
+                self.plot_items['target_point_marker'].setData([x], [y])
+            
+            # If currently in Fixed Point pattern, update the plan
+            if hasattr(self, 'pattern_combo') and self.pattern_combo.currentText() == "Fixed Point":
+                if hasattr(self, 'trajectory_manager'):
+                    self.trajectory_manager.update_trajectory_plan()
+
     def update_movement_pattern(self, pattern):
         """Update movement pattern"""
         self.movement_pattern = pattern

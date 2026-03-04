@@ -24,5 +24,22 @@
             85,
             255
         ]
+    },
+    "indoor office irisa": {
+        "parameters": {
+            "path_loss_exponent": 3.07,
+            "shadow_fading_std": 3.9,
+            "frequency_decay_factor": 1.0,
+            "error_bias": 0.09999999999999999,
+            "noise_factor": 1.5,
+            "rms_delay_spread_ns": 20.0,
+            "cluster_decay_ns": 15.0,
+            "ray_decay_ns": 0.56
+        },
+        "color": [
+            85,
+            255,
+            0
+        ]
     }
 }
