@@ -445,6 +445,9 @@ class ControlPanelFactory:
         open_traj_folder_btn.setToolTip("Open trajectories folder")
         # open_traj_folder_btn.setFixedWidth(40) # Removed fixed width
         
+        play_exact_btn = ActionButton("⏱️ Play Exact", variant="secondary")
+        play_exact_btn.setToolTip("Play exact trajectory points exactly once based on time step")
+        
         # Row 1: Trajectory Actions (New, Import / Open, Delete)
         # Split into two sub-rows for better fit
         actions_layout = QVBoxLayout()
@@ -461,6 +464,10 @@ class ControlPanelFactory:
         row2.addWidget(open_traj_folder_btn, 1) # Stretch factor 1
         row2.addWidget(delete_traj_btn, 1) # Stretch factor 1
         actions_layout.addLayout(row2)
+        
+        row3 = QHBoxLayout()
+        row3.addWidget(play_exact_btn, 1)
+        actions_layout.addLayout(row3)
         
         # Add actions layout at Row 1 (pushing others down)
         movement_layout.addLayout(actions_layout, 1, 0, 1, 3)
@@ -513,6 +520,7 @@ class ControlPanelFactory:
             'import_traj_btn': import_traj_btn,
             'delete_traj_btn': delete_traj_btn,
             'open_traj_folder_btn': open_traj_folder_btn,
+            'play_exact_btn': play_exact_btn,
             'target_point_btn': target_point_btn,
             'fp_x_spin': fp_x_spin,
             'fp_y_spin': fp_y_spin

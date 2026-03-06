@@ -183,7 +183,7 @@ def batch_path_loss(
     dist_term = 10.0 * path_loss_exponent * xp.log10(d / reference_distance)
     shadowing = xp.random.normal(0, shadow_fading_std, size=len(d))
     nlos_const = (1.0 - is_los) * 10.0  # 10 dB extra for NLOS
-    ref_loss = reference_loss_db
+    ref_loss = -reference_loss_db  # reference_loss_db is gain (e.g. -43dB), negate for loss (+43dB)
     
     total_loss_db = ref_loss + freq_term + dist_term + shadowing + nlos_const
     
@@ -353,6 +353,9 @@ def batch_ranging_errors(
     model_lower = noise_model.lower()
     if model_lower == "gaussian":
         noise = xp.random.normal(0, 1, size=n_samples) * total_std
+    elif "non-centralized" in model_lower:
+        # Non-centralized Gaussian: mean shifted by 0.5*std
+        noise = xp.random.normal(0, 1, size=n_samples) * total_std + total_std * 0.5
     elif model_lower == "laplace":
         b = total_std / xp.sqrt(2.0)
         noise = xp.random.laplace(0, 1, size=n_samples) * b
@@ -637,7 +640,7 @@ def batch_measure_distances(
     # --- 5. Batch Ranging Errors (all anchors at once) ---
     snr_safe = np.maximum(snr_linear, 0.1)
     sigma_crlb_array = c / (2 * np.pi * B * np.sqrt(2 * snr_safe))
-    sigma_jitter = channel_model.uwb_params.fixed_noise_std / 10.0
+    sigma_jitter = channel_model.uwb_params.fixed_noise_std
     
     noise_factors = np.array([channel_model.current_noise_factor] * n_anchors)
     error_biases = np.array([channel_model.current_error_bias] * n_anchors)

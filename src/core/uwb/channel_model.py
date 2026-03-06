@@ -95,6 +95,12 @@ class UWBChannelModel:
         self.uwb_params = uwb_params
         self._cached_thermal_noise = None  # Invalidate cache
 
+    def update_path_loss_parameters(self, path_loss_params: PathLossParams):
+        """Update path loss parameters for both LOS baseline and current active params."""
+        self.los_path_loss_params = path_loss_params
+        # Also update current active params so changes take effect immediately
+        self.current_path_loss_params = path_loss_params
+
     def set_uwb_channel(self, channel: int):
         """Set UWB channel center frequency and bandwidth."""
         if channel in self.channel_map:
@@ -391,7 +397,9 @@ class UWBChannelModel:
         snr_safe = max(snr_linear, 0.1)
         sigma_crlb = self.c / (2 * np.pi * B * np.sqrt(2 * snr_safe))
         
-        total_std = sigma_crlb
+        # Combine CRLB noise with hardware implementation noise
+        # so the noise model operates on a meaningful magnitude
+        total_std = np.sqrt(sigma_crlb**2 + self.uwb_params.fixed_noise_std**2)
         
         noise_error = self._generate_noise(total_std, self.noise_model)
         if not is_los:
@@ -825,9 +833,7 @@ class UWBChannelModel:
         # Amp_Ratio = 10^(-Loss_db / 20)
         return 10 ** (-pl_db / 20.0)
 
-    @property
-    def noise_model(self) -> str:
-        return "gaussian" # Default return
+    # noise_model property is defined above (line ~738) via set_noise_model / @property
 
     @property
     def n_paths(self) -> int:

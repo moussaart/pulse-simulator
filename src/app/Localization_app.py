@@ -467,8 +467,10 @@ class LocalizationApp(QMainWindow):
             if 'delete_traj_btn' in movement_widgets:
                 movement_widgets['delete_traj_btn'].clicked.connect(self.trajectory_manager.delete_custom_trajectory_dialog)
                 
-            if 'open_traj_folder_btn' in movement_widgets:
                 movement_widgets['open_traj_folder_btn'].clicked.connect(self.trajectory_manager.open_trajectory_folder)
+                
+            if 'play_exact_btn' in movement_widgets:
+                movement_widgets['play_exact_btn'].clicked.connect(self.play_exact_trajectory)
             
             self.target_point_btn.clicked.connect(self.event_handler.toggle_target_point_mode)
             return movement_group
@@ -1183,6 +1185,7 @@ class LocalizationApp(QMainWindow):
     def update_movement_pattern(self, pattern):
         """Update movement pattern"""
         self.movement_pattern = pattern
+        self.exact_trajectory_mode = False # Reset exact mode on pattern change
         if not hasattr(self, 'tag'):
             self.tag = Tag(Position(5, 5))
             self.tag.imu_data = IMUData()
@@ -1190,6 +1193,36 @@ class LocalizationApp(QMainWindow):
         # Only update trajectory plan if initialized
         if hasattr(self, 'trajectory_manager'):
             self.trajectory_manager.update_trajectory_plan()
+    
+    def play_exact_trajectory(self):
+        """Play exact trajectory based on time step without looping"""
+        if not self.movement_pattern.startswith("Custom:"):
+            self.show_error_message("Error", "Please select a custom trajectory first.")
+            return
+            
+        traj_name = self.movement_pattern[7:]
+        points = MotionController.load_custom_trajectory(traj_name)
+        if not points:
+            self.show_error_message("Error", f"Could not load trajectory {traj_name}.")
+            return
+            
+        self.exact_trajectory_mode = True
+        
+        auto_duration = len(points) * self.dt
+        
+        # Change duration dropdown to custom
+        if hasattr(self, 'timeline_widget'):
+            index = self.timeline_widget.duration_combo.findText("Custom")
+            if index >= 0:
+                self.timeline_widget.duration_combo.setCurrentIndex(index)
+            self.timeline_widget.custom_duration_spin.setValue(int(auto_duration))
+            
+        self.simulation_manager.set_duration(auto_duration)
+        
+        self.restart_simulation()
+        
+        if self.is_paused:
+            self.toggle_pause()
     
     def update_speed_with_label(self):
         """Update speed and label"""

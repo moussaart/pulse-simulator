@@ -1,0 +1,20 @@
+Simulation Export - 20260306_104519
+==================================================
+
+Algorithm: Adaptive Extended Kalman Filter
+Duration: 40.05s
+Movement Pattern: Fixed Point
+Movement Speed: 1.0 m/s
+
+UWB Channel Parameters:
+--------------------
+Path Loss Exponent: 3.000000000000001
+Shadow Fading Std: 3.000000000000001
+Frequency: 6.5 GHz
+
+Anchors:
+--------------------
+ID: A1, Pos: (1.64, 1.76)
+ID: A2, Pos: (4.5, 1.1)
+ID: A3, Pos: (5.05, 5.5)
+ID: A4, Pos: (1.95, 6.05)

@@ -51,6 +51,25 @@ class FileManager:
         except AttributeError:
              pass
 
+        # Collect UWB configurations
+        uwb_config = {}
+        try:
+            uwb_config['channel'] = self.parent.channel_combo.currentText() if getattr(self.parent, 'channel_combo', None) else "Channel 9 (7.98 GHz)"
+            uwb_config['environment'] = self.parent.environment_combo.currentText() if getattr(self.parent, 'environment_combo', None) else "Open Outdoor"
+            uwb_config['noise_model'] = self.parent.noise_model_combo.currentText() if getattr(self.parent, 'noise_model_combo', None) else "Gaussian"
+            uwb_config['tx_gain'] = self.parent.tx_gain_spin.value() if getattr(self.parent, 'tx_gain_spin', None) else 0.0
+            uwb_config['rx_gain'] = self.parent.rx_gain_spin.value() if getattr(self.parent, 'rx_gain_spin', None) else 0.0
+            uwb_config['noise_figure'] = self.parent.noise_spin.value() if getattr(self.parent, 'noise_spin', None) else 5.0
+            uwb_config['los_path_loss'] = self.parent.los_pl_spin.value() if getattr(self.parent, 'los_pl_spin', None) else 2.0
+            uwb_config['los_shadowing'] = self.parent.los_shadow_spin.value() if getattr(self.parent, 'los_shadow_spin', None) else 3.0
+            uwb_config['freq_decay'] = self.parent.freq_decay_spin.value() if getattr(self.parent, 'freq_decay_spin', None) else 1.0
+            uwb_config['cluster_decay'] = self.parent.cluster_decay_spin.value() if getattr(self.parent, 'cluster_decay_spin', None) else 60.0
+            uwb_config['ray_decay'] = self.parent.ray_decay_spin.value() if getattr(self.parent, 'ray_decay_spin', None) else 20.0
+            uwb_config['toa_threshold'] = self.parent.toa_threshold_spin.value() if getattr(self.parent, 'toa_threshold_spin', None) else 0.5
+            uwb_config['fixed_noise'] = self.parent.fixed_noise_spin.value() if getattr(self.parent, 'fixed_noise_spin', None) else 100.0
+        except Exception as e:
+            print(f"Error saving UWB configuration properties: {e}")
+
         config = {
             'anchors': self.serialize_anchors(),
             'nlos_zones': self.serialize_nlos_zones(),
@@ -58,6 +77,7 @@ class FileManager:
             'movement_pattern': movement_pattern,
             'movement_speed': movement_speed,
             'timestep_ms': timestep_ms,
+            'uwb_config': uwb_config,
         }
         
         # Open file dialog
@@ -157,6 +177,39 @@ class FileManager:
                             self.parent.timestep_slider.setValue(5)
                     except RuntimeError:
                         pass
+                
+                # Load UWB configuration if present
+                uwb_config = config.get('uwb_config', {})
+                if uwb_config:
+                    try:
+                        if 'channel' in uwb_config and getattr(self.parent, 'channel_combo', None):
+                            self.parent.channel_combo.setCurrentText(uwb_config['channel'])
+                        if 'environment' in uwb_config and getattr(self.parent, 'environment_combo', None):
+                            self.parent.environment_combo.setCurrentText(uwb_config['environment'])
+                        if 'noise_model' in uwb_config and getattr(self.parent, 'noise_model_combo', None):
+                            self.parent.noise_model_combo.setCurrentText(uwb_config['noise_model'])
+                        if 'tx_gain' in uwb_config and getattr(self.parent, 'tx_gain_spin', None):
+                            self.parent.tx_gain_spin.setValue(uwb_config['tx_gain'])
+                        if 'rx_gain' in uwb_config and getattr(self.parent, 'rx_gain_spin', None):
+                            self.parent.rx_gain_spin.setValue(uwb_config['rx_gain'])
+                        if 'noise_figure' in uwb_config and getattr(self.parent, 'noise_spin', None):
+                            self.parent.noise_spin.setValue(uwb_config['noise_figure'])
+                        if 'los_path_loss' in uwb_config and getattr(self.parent, 'los_pl_spin', None):
+                            self.parent.los_pl_spin.setValue(uwb_config['los_path_loss'])
+                        if 'los_shadowing' in uwb_config and getattr(self.parent, 'los_shadow_spin', None):
+                            self.parent.los_shadow_spin.setValue(uwb_config['los_shadowing'])
+                        if 'freq_decay' in uwb_config and getattr(self.parent, 'freq_decay_spin', None):
+                            self.parent.freq_decay_spin.setValue(uwb_config['freq_decay'])
+                        if 'cluster_decay' in uwb_config and getattr(self.parent, 'cluster_decay_spin', None):
+                            self.parent.cluster_decay_spin.setValue(uwb_config['cluster_decay'])
+                        if 'ray_decay' in uwb_config and getattr(self.parent, 'ray_decay_spin', None):
+                            self.parent.ray_decay_spin.setValue(uwb_config['ray_decay'])
+                        if 'toa_threshold' in uwb_config and getattr(self.parent, 'toa_threshold_spin', None):
+                            self.parent.toa_threshold_spin.setValue(uwb_config['toa_threshold'])
+                        if 'fixed_noise' in uwb_config and getattr(self.parent, 'fixed_noise_spin', None):
+                            self.parent.fixed_noise_spin.setValue(uwb_config['fixed_noise'])
+                    except Exception as e:
+                        print(f"Error restoring UWB config: {e}")
                     
             except Exception as e:
                 self.parent.show_error_message("Error", f"Failed to load map: {str(e)}")

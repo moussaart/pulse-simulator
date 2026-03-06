@@ -90,7 +90,9 @@ class SimulationManager:
                         movement_speed=self.parent.movement_speed,
                         t=self.simulation_time,
                         frequence=1 / self.parent.dt,
-                        point=self.parent.point
+                        point=self.parent.point,
+                        exact_mode=getattr(self.parent, 'exact_trajectory_mode', False),
+                        dt=self.parent.dt
                     )
                 except SimulationError:
                     raise

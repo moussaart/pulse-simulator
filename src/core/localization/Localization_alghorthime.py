@@ -90,7 +90,7 @@ class LocalizationAlgorthimes():
         """
         
         if not ekf_initialized:
-            ekf_state = np.array([0.0, 0.0, 0.0, 0.0])
+            ekf_state = np.array([tag.position.x, tag.position.y, 0.0, 0.0])
             ekf_P = np.eye(4) * 1.0
             ekf_initialized = True
         
@@ -318,7 +318,7 @@ class LocalizationAlgorthimes():
         """
         if not aekf_initialized:
             # Start from origin by request
-            aekf_state = np.array([0.0, 0.0, 0.0, 0.0])
+            aekf_state = np.array([tag.position.x, tag.position.y, 0.0, 0.0])
             aekf_P = np.eye(4) * 1.0
             aekf_initialized = True
         

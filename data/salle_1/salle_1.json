@@ -199,8 +199,23 @@
             }
         }
     ],
-    "algorithm": "Trilateration",
+    "algorithm": "Adaptive Extended Kalman Filter",
     "movement_pattern": "Fixed Point",
     "movement_speed": 1.0,
-    "timestep_ms": 50
+    "timestep_ms": 50,
+    "uwb_config": {
+        "channel": "5",
+        "environment": "Indoor Office",
+        "noise_model": "Gaussian",
+        "tx_gain": 1.5,
+        "rx_gain": 1.5,
+        "noise_figure": 6.0,
+        "los_path_loss": 1.63,
+        "los_shadowing": 1.9,
+        "freq_decay": 1.0,
+        "cluster_decay": 17.6,
+        "ray_decay": 5.1,
+        "toa_threshold": 0.25,
+        "fixed_noise": 0.13
+    }
 }

@@ -11,7 +11,7 @@ class MotionController:
     _trajectory_cache = {}
 
     @staticmethod
-    def update_tag_position(tag : Tag, movement_pattern : str, movement_speed : float, t : float , frequence = 1000 , point =(0,0)):
+    def update_tag_position(tag : Tag, movement_pattern : str, movement_speed : float, t : float , frequence = 1000 , point =(0,0), exact_mode: bool = False, dt: float = 0.05):
         prev_x = tag.position.x
         prev_y = tag.position.y
         prev_vx = tag.velocity.x
@@ -55,36 +55,55 @@ class MotionController:
             points = points[mask]
             cumulative_distances = cumulative_distances[mask]
             
-            # Calculate total time needed to complete the trajectory at given speed
-            total_time = total_length / movement_speed
-            
-            # Create periodic time parameter
-            current_distance = (t * movement_speed) % total_length
-            
-            # Add closing point if needed
-            if not np.allclose(points[0], points[-1]):
-                # Only add closing point if it would not create a duplicate
-                if np.abs(cumulative_distances[-1] - total_length) > 1e-10:
-                    points = np.vstack([points, points[0]])
-                    cumulative_distances = np.append(cumulative_distances, total_length)
-            
-            # Create periodic interpolation based on distance
-            x_interp = interp1d(cumulative_distances, points[:, 0], kind='cubic', bounds_error=False, fill_value='extrapolate')
-            y_interp = interp1d(cumulative_distances, points[:, 1], kind='cubic', bounds_error=False, fill_value='extrapolate')
-            
-            # Get interpolated position
-            new_x = float(x_interp(current_distance))
-            new_y = float(y_interp(current_distance))
-            
-            # Calculate velocities using finite differences
-            dt_small = 0.01
-            next_distance = (current_distance + movement_speed * dt_small) % total_length
-            next_x = float(x_interp(next_distance))
-            next_y = float(y_interp(next_distance))
-            
-            # Update velocities
-            tag.velocity.x = (next_x - new_x) / dt_small
-            tag.velocity.y = (next_y - new_y) / dt_small
+            if exact_mode:
+                index = int(t / dt)
+                if index < len(points):
+                    new_x = points[index][0]
+                    new_y = points[index][1]
+                else:
+                    new_x = points[-1][0]
+                    new_y = points[-1][1]
+                
+                if index < len(points) - 1:
+                    next_x = points[index+1][0]
+                    next_y = points[index+1][1]
+                else:
+                    next_x = new_x
+                    next_y = new_y
+                
+                tag.velocity.x = (next_x - new_x) / dt
+                tag.velocity.y = (next_y - new_y) / dt
+            else:
+                # Calculate total time needed to complete the trajectory at given speed
+                total_time = total_length / movement_speed
+                
+                # Create periodic time parameter
+                current_distance = (t * movement_speed) % total_length
+                
+                # Add closing point if needed
+                if not np.allclose(points[0], points[-1]):
+                    # Only add closing point if it would not create a duplicate
+                    if np.abs(cumulative_distances[-1] - total_length) > 1e-10:
+                        points = np.vstack([points, points[0]])
+                        cumulative_distances = np.append(cumulative_distances, total_length)
+                
+                # Create periodic interpolation based on distance
+                x_interp = interp1d(cumulative_distances, points[:, 0], kind='cubic', bounds_error=False, fill_value='extrapolate')
+                y_interp = interp1d(cumulative_distances, points[:, 1], kind='cubic', bounds_error=False, fill_value='extrapolate')
+                
+                # Get interpolated position
+                new_x = float(x_interp(current_distance))
+                new_y = float(y_interp(current_distance))
+                
+                # Calculate velocities using finite differences
+                dt_small = 0.01
+                next_distance = (current_distance + movement_speed * dt_small) % total_length
+                next_x = float(x_interp(next_distance))
+                next_y = float(y_interp(next_distance))
+                
+                # Update velocities
+                tag.velocity.x = (next_x - new_x) / dt_small
+                tag.velocity.y = (next_y - new_y) / dt_small
         else:
             # Update position based on selected movement pattern
             if movement_pattern == "Circular":
