@@ -363,6 +363,8 @@ class EventHandler:
                 # Delete the anchor (only once)
                 self.parent.anchors.remove(anchor)
                 self.parent.renormalize_anchors()
+                if hasattr(self.parent, 'sync_energy_parameters'):
+                    self.parent.sync_energy_parameters()
                 # Stay in delete mode - don't reset deleting_anchor flag
             else:
                 # Cannot delete - minimum 3 anchors required
@@ -377,6 +379,8 @@ class EventHandler:
         self.parent.anchors.append(new_anchor)
         
         self.parent.renormalize_anchors()
+        if hasattr(self.parent, 'sync_energy_parameters'):
+            self.parent.sync_energy_parameters()
 
     def handle_zone_deletion(self, x, y):
         """Handle NLOS zone deletion"""

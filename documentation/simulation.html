@@ -107,6 +107,22 @@
                 <p>systematic positive error caused when the direct path is attenuated or blocked (NLOS), leading the receiver to trigger on a later multipath component.</p>
 
                 <hr>
+
+                <h3>Energy Consumption Modeling</h3>
+                <p>To estimate battery life, PULSE implements a duty-cycle based power consumption model. The total power draw is calculated based on radio activity (TX/RX) and auxiliary sensors (IMU).</p>
+                
+                <div class="math-block">
+                    $$ P_{total} = \underbrace{E_{rng} \cdot F_{update} \cdot N_{anchors}}_{\text{UWB Activity}} + \underbrace{V \cdot I_{idle} \cdot (1 - \text{DutyCycle})}_{\text{Idle Power}} + \underbrace{P_{IMU}}_{\text{Optional IMU}} $$
+                </div>
+
+                <p>Available Hardware Profiles:</p>
+                <ul>
+                    <li><strong>Decawave DW3000:</strong> High efficiency, optimized for battery-powered tags.</li>
+                    <li><strong>NXP SR150:</strong> Professional grade with dual-antenna support.</li>
+                    <li><strong>DWM3000 Module:</strong> Ready-to-use module with integrated power management.</li>
+                </ul>
+
+                <hr>
                 
 
 

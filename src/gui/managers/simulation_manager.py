@@ -206,6 +206,29 @@ class SimulationManager:
                 # Update visualizations
                 self.update_visualizations(estimated_pos, error, measurements)
                 
+                # --- Dynamic Energy Calculation ---
+                if hasattr(self.parent, 'energy_calculator'):
+                    calc = self.parent.energy_calculator
+                    algo = self.parent.algorithm.lower()
+                    
+                    # Live parameters
+                    calc.config.uwb_frequency_hz = 1.0 / self.parent.dt
+                    calc.config.num_anchors = len(self.parent.anchors)
+                    
+                    # Algorithm awareness
+                    is_imu_only = "imu only" in algo
+                    uses_imu = "imu" in algo or "hybrid" in algo
+                    
+                    calc.config.uwb_disabled = is_imu_only
+                    calc.config.imu_enabled = uses_imu
+                    
+                    # Calculate and accumulate for this timestep
+                    calc.calculate_step(self.parent.dt)
+                    
+                    # Trigger UI update
+                    if hasattr(self.parent, 'update_energy_displays'):
+                        self.parent.update_energy_displays()
+                
         except SimulationError as e:
             self._handle_simulation_error(e)
         except Exception as e:
@@ -302,6 +325,14 @@ class SimulationManager:
                     instance.initialize()
             except Exception as e:
                 logger.warning(f"Error resetting algorithm {name}: {e}")
+                
+        # Reset energy accumulator
+        if hasattr(self.parent, 'energy_calculator'):
+            self.parent.energy_calculator.reset_accumulator()
+            if hasattr(self.parent, 'sync_energy_parameters'):
+                self.parent.sync_energy_parameters()
+            elif hasattr(self.parent, 'update_energy_displays'):
+                self.parent.update_energy_displays()
     
     def _measure_single_anchor(self, anchor):
         """

@@ -49,6 +49,8 @@ from src.gui.windows.cir_window import CIRWindow
 # AI Training API import
 from src.api import TrainingDataAPI
 from src.gui.windows.algorithm_creation_window import AlgorithmCreationWindow
+from src.core.uwb.energy_model import EnergyCalculator, EnergyConfig
+from src.gui.windows.energy_window import EnergyWindow
 
 # Error handling
 from src.core.error_handler import SimulationErrorHandler
@@ -66,6 +68,10 @@ class LocalizationApp(QMainWindow):
         self.imu_window = None
         self.cir_window = None
         self.los_aware_window = None
+        self.energy_window = None
+        
+        # Energy calculator (shared between panel and window)
+        self.energy_calculator = EnergyCalculator()
         self.setWindowTitle("PULSE - Localization UWB Simulator")
         
         # Set window icon
@@ -194,6 +200,9 @@ class LocalizationApp(QMainWindow):
         self.pause_button.setChecked(True)
         self.pause_button.setText("▶️ Start")
         self.pause_button.setToolTip("Start Simulation")
+        
+        # Initialize the energy calculations with the default simulation parameters
+        self.sync_energy_parameters()
     
     def setup_ui(self):
         """Setup the user interface with modular panel system"""
@@ -349,6 +358,13 @@ class LocalizationApp(QMainWindow):
         distance_btn.clicked.connect(self.toggle_distance_window)
         self.ai_data_btn.clicked.connect(self.toggle_ai_data_collection)
         right_layout.addLayout(sensor_layout)
+        
+        # Energy button
+        from src.gui.widgets import ActionButton
+        energy_btn = ActionButton("⚡ Energy", variant="secondary")
+        energy_btn.setToolTip("Toggle Energy Consumption Panel")
+        energy_btn.clicked.connect(lambda: self.panel_manager.toggle_panel("energy"))
+        right_layout.addWidget(energy_btn)
         
         # Separator
         sep = QFrame()
@@ -508,6 +524,47 @@ class LocalizationApp(QMainWindow):
         
 
         
+        # Energy Panel
+        def create_energy_panel():
+            energy_group, energy_widgets = ControlPanelFactory.create_energy_panel()
+            self.energy_widgets = energy_widgets
+
+            # Wire up auto-recalculation on any parameter change
+            def _recalculate():
+                self.energy_calculator.config.apply_hardware_profile(energy_widgets['device_combo'].currentText())
+                self.energy_calculator.set_ranging_mode(energy_widgets['ranging_mode_combo'].currentText())
+                self.energy_calculator.set_frequency(energy_widgets['uwb_freq_spin'].value())
+                self.energy_calculator.set_num_anchors(energy_widgets['num_anchors_spin'].value())
+                self.energy_calculator.set_imu_enabled(energy_widgets['imu_enabled_check'].isChecked())
+                self.energy_calculator.config.battery_capacity_mAh = energy_widgets['battery_spin'].value()
+                result = self.energy_calculator.calculate()
+                # Update result labels
+                avg_msg_e = (result.energy_per_tx_message_uJ + result.energy_per_rx_message_uJ) / 2
+                energy_widgets['energy_msg_label'].setText(f"{avg_msg_e:.4f} µJ")
+                energy_widgets['energy_ranging_label'].setText(f"{result.energy_per_ranging_uJ:.4f} µJ")
+                energy_widgets['total_power_label'].setText(f"{result.total_power_mW:.2f} mW")
+                if result.battery_life_days > 365:
+                    energy_widgets['battery_life_label'].setText(f"{result.battery_life_days/365:.1f} years")
+                elif result.battery_life_days > 1:
+                    energy_widgets['battery_life_label'].setText(f"{result.battery_life_days:.1f} days")
+                else:
+                    energy_widgets['battery_life_label'].setText(f"{result.battery_life_hours:.1f} hours")
+                # Refresh energy window if open
+                if self.energy_window is not None and self.energy_window.isVisible():
+                    self.energy_window.refresh()
+
+            energy_widgets['device_combo'].currentTextChanged.connect(lambda: _recalculate())
+            energy_widgets['ranging_mode_combo'].currentTextChanged.connect(lambda: _recalculate())
+            energy_widgets['uwb_freq_spin'].valueChanged.connect(lambda: _recalculate())
+            energy_widgets['num_anchors_spin'].valueChanged.connect(lambda: _recalculate())
+            energy_widgets['imu_enabled_check'].toggled.connect(lambda: _recalculate())
+            energy_widgets['battery_spin'].valueChanged.connect(lambda: _recalculate())
+            energy_widgets['open_window_btn'].clicked.connect(self.toggle_energy_window)
+
+            # Trigger initial calculation
+            _recalculate()
+            return energy_group
+
         # Register panels
         self.panel_manager.register_panel("anchor", "📍 Anchor Configuration", create_anchor_panel)
         self.panel_manager.register_panel("nlos", "🚧 NLOS Regions", create_nlos_panel)
@@ -515,7 +572,7 @@ class LocalizationApp(QMainWindow):
         self.panel_manager.register_panel("movement", "🚶 Movement Pattern", create_movement_panel)
         self.panel_manager.register_panel("algorithm", "🧮 Algorithm", create_algorithm_panel)
         self.panel_manager.register_panel("status", "📋 Status", create_status_panel)
-        self.panel_manager.register_panel("status", "📋 Status", create_status_panel)
+        self.panel_manager.register_panel("energy", "⚡ Energy Consumption", create_energy_panel)
         
         # Pre-load essential panels that contain widgets needed for simulation
         # These panels are created but hidden, their widgets are accessible
@@ -610,6 +667,11 @@ class LocalizationApp(QMainWindow):
         status_action = QAction("📝  Event Log", self)
         status_action.triggered.connect(lambda: self.panel_manager.toggle_panel("status"))
         self.analysis_menu.addAction(status_action)
+        
+        # Energy Consumption
+        energy_action = QAction("⚡  Energy Consumption", self)
+        energy_action.triggered.connect(lambda: self.panel_manager.toggle_panel("energy"))
+        self.analysis_menu.addAction(energy_action)
 
 
     
@@ -1017,6 +1079,52 @@ class LocalizationApp(QMainWindow):
             else:
                 self.cir_window.show()
     
+    def toggle_energy_window(self):
+        """Toggle detailed energy consumption analysis window"""
+        if self.energy_window is None:
+            self.energy_window = EnergyWindow(self.energy_calculator, self)
+        
+        if self.energy_window.isVisible():
+            self.energy_window.hide()
+        else:
+            self.energy_window.refresh()
+            self.energy_window.show()
+            
+    def update_energy_displays(self):
+        """Update energy consumption displays in the main panel and standalone window."""
+        # Safety check: prevent crashes if called before GUI initialization finishes
+        if not hasattr(self, 'energy_widgets'):
+            return
+            
+        result = self.energy_calculator.calculate()
+        
+        # Update main panel inputs (which are now read-only displays)
+        self.energy_widgets['uwb_freq_spin'].setValue(self.energy_calculator.config.uwb_frequency_hz)
+        self.energy_widgets['num_anchors_spin'].setValue(self.energy_calculator.config.num_anchors)
+        
+        # Check if IMU is active (either enabled or uwb is disabled/IMU-only)
+        imu_active = self.energy_calculator.config.imu_enabled or self.energy_calculator.config.uwb_disabled
+        self.energy_widgets['imu_enabled_check'].setChecked(imu_active)
+        
+        # Update the main panel results labels
+        self.energy_widgets['energy_msg_label'].setText(f"{result.energy_per_tx_message_uJ:.2f} µJ")
+        self.energy_widgets['energy_ranging_label'].setText(f"{result.energy_per_ranging_uJ:.2f} µJ")
+        self.energy_widgets['total_power_label'].setText(f"{result.total_power_mW:.2f} mW")
+        self.energy_widgets['total_energy_label'].setText(f"{result.total_energy_consumed_J:.4f} J")
+        
+        # Battery life string
+        if result.battery_life_days < 1:
+            batt_str = f"{result.battery_life_hours:.1f} h"
+        elif result.battery_life_days > 365:
+            batt_str = f"{(result.battery_life_days / 365):.1f} y"
+        else:
+            batt_str = f"{result.battery_life_days:.1f} d"
+        self.energy_widgets['battery_life_label'].setText(batt_str)
+        
+        # If open, refresh the detailed standalone window
+        if self.energy_window is not None and self.energy_window.isVisible():
+            self.energy_window.refresh()
+    
     def toggle_ai_data_collection(self):
         """Toggle AI Training Data Collection and print data when stopped"""
         if self.ai_data_btn.isChecked():
@@ -1230,16 +1338,46 @@ class LocalizationApp(QMainWindow):
         self.speed_value_label.setText(f"{speed:.1f} m/s")
         self.movement_speed = speed
     
+    def sync_energy_parameters(self):
+        """Syncs the energy calculator configuration with current UI and simulation state, then updates displays."""
+        if not hasattr(self, 'energy_calculator') or not hasattr(self, 'energy_widgets'):
+            return
+            
+        # Update frequency based on current time step (dt)
+        if hasattr(self, 'dt') and self.dt > 0:
+            self.energy_calculator.config.uwb_frequency_hz = 1.0 / self.dt
+            
+        # Update number of anchors
+        if hasattr(self, 'anchors'):
+            self.energy_calculator.config.num_anchors = len(self.anchors)
+            
+        # Update algorithm flag
+        if hasattr(self, 'algorithm'):
+            algo = self.algorithm.lower()
+            if "imu only" in algo or "imu-only" in algo:
+                self.energy_calculator.config.uwb_disabled = True
+                self.energy_calculator.config.imu_enabled = True
+            elif "hybrid" in algo or "aekf" in algo or "ekf" in algo:
+                self.energy_calculator.config.uwb_disabled = False
+                self.energy_calculator.config.imu_enabled = True
+            else:
+                self.energy_calculator.config.uwb_disabled = False
+                self.energy_calculator.config.imu_enabled = False
+                
+        self.update_energy_displays()
+
     def update_timestep_with_label(self):
         """Update time step and label"""
         timestep_ms = self.timestep_slider.value()
         self.dt = timestep_ms / 1000.0
         frequency = 1000.0 / timestep_ms
         self.timestep_value_label.setText(f"{timestep_ms} ms ({frequency:.1f} Hz)")
+        self.sync_energy_parameters()
     
     def update_algorithm(self, algorithm):
         """Update localization algorithm"""
         self.algorithm = algorithm
+        self.sync_energy_parameters()
         
         # Update toolbar indicator if it exists
         if hasattr(self, 'algo_indicator_btn'):

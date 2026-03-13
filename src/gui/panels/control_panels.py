@@ -636,6 +636,134 @@ class ControlPanelFactory:
         status_group.setLayout(status_layout)
         
         return status_group, status_display
-    
 
+    @staticmethod
+    def create_energy_panel():
+        """Create UWB tag energy consumption configuration panel"""
+        energy_group = ModernGroupBox("⚡ Energy Consumption")
 
+        main_layout = QVBoxLayout()
+        main_layout.setSpacing(6)
+        main_layout.setContentsMargins(6, 12, 6, 6)
+
+        # --- Configuration grid ---
+        config_grid = QGridLayout()
+        config_grid.setSpacing(6)
+
+        # Hardware Profile
+        config_grid.addWidget(QLabel("Device:"), 0, 0)
+        device_combo = QComboBox()
+        from src.core.uwb.hardware_profiles import HardwareProfileManager
+        profiles = HardwareProfileManager.get_all_profile_names()
+        device_combo.addItems(profiles)
+        default_index = device_combo.findText("Custom / DW1000 Default")
+        if default_index >= 0:
+            device_combo.setCurrentIndex(default_index)
+        device_combo.setToolTip("Select UWB Hardware Profile")
+        config_grid.addWidget(device_combo, 0, 1)
+
+        # Ranging mode
+        config_grid.addWidget(QLabel("Ranging Mode:"), 1, 0)
+        ranging_mode_combo = QComboBox()
+        ranging_mode_combo.addItems(["SS-TWR", "DS-TWR"])
+        ranging_mode_combo.setToolTip("Two-Way Ranging protocol")
+        config_grid.addWidget(ranging_mode_combo, 1, 1)
+
+        # UWB frequency (Dynamic)
+        config_grid.addWidget(QLabel("UWB Freq (Hz):"), 2, 0)
+        uwb_freq_spin = QDoubleSpinBox()
+        uwb_freq_spin.setRange(0.0, 1000.0)
+        uwb_freq_spin.setValue(0.0)
+        uwb_freq_spin.setSuffix(" Hz")
+        uwb_freq_spin.setToolTip("Ranging rate (dynamically set by dt)")
+        uwb_freq_spin.setEnabled(False) # Read-only, driven by simulation
+        config_grid.addWidget(uwb_freq_spin, 2, 1)
+
+        # Number of anchors (Dynamic)
+        config_grid.addWidget(QLabel("Anchors:"), 3, 0)
+        num_anchors_spin = QSpinBox()
+        num_anchors_spin.setRange(0, 16)
+        num_anchors_spin.setValue(0)
+        num_anchors_spin.setToolTip("Number of anchors (dynamically set by scene)")
+        num_anchors_spin.setEnabled(False) # Read-only, driven by simulation
+        config_grid.addWidget(num_anchors_spin, 3, 1)
+
+        # IMU enabled (Dynamic)
+        imu_enabled_check = QCheckBox("IMU Power")
+        imu_enabled_check.setChecked(False)
+        imu_enabled_check.setToolTip("IMU power (dynamically set by algorithm)")
+        imu_enabled_check.setEnabled(False) # Read-only, driven by simulation
+        config_grid.addWidget(imu_enabled_check, 4, 0, 1, 2)
+
+        # Battery capacity (Manual)
+        config_grid.addWidget(QLabel("Battery (mAh):"), 5, 0)
+        battery_spin = QDoubleSpinBox()
+        battery_spin.setRange(1.0, 50000.0)
+        battery_spin.setValue(225.0)
+        battery_spin.setSingleStep(10.0)
+        battery_spin.setDecimals(0)
+        battery_spin.setSuffix(" mAh")
+        battery_spin.setToolTip("Battery capacity for life estimation")
+        config_grid.addWidget(battery_spin, 5, 1)
+
+        main_layout.addLayout(config_grid)
+
+        # --- Open details window button ---
+        open_window_btn = ActionButton("📊 Details Window", variant="secondary")
+        open_window_btn.setToolTip("Open detailed energy analysis window")
+        main_layout.addWidget(open_window_btn)
+
+        # --- Results section ---
+        results_label = QLabel("Results")
+        results_label.setStyleSheet(f"color: {COLORS['accent']}; font-weight: bold; font-size: 11px; margin-top: 6px;")
+        main_layout.addWidget(results_label)
+
+        results_grid = QGridLayout()
+        results_grid.setSpacing(4)
+
+        def _make_result_label(text="—"):
+            lbl = QLabel(text)
+            lbl.setStyleSheet(f"color: {COLORS['text_bright']}; font-weight: bold;")
+            lbl.setAlignment(Qt.AlignRight)
+            return lbl
+
+        results_grid.addWidget(QLabel("Energy/msg:"), 0, 0)
+        energy_msg_label = _make_result_label()
+        results_grid.addWidget(energy_msg_label, 0, 1)
+
+        results_grid.addWidget(QLabel("Energy/ranging:"), 1, 0)
+        energy_ranging_label = _make_result_label()
+        results_grid.addWidget(energy_ranging_label, 1, 1)
+
+        results_grid.addWidget(QLabel("Current power:"), 2, 0)
+        total_power_label = _make_result_label()
+        results_grid.addWidget(total_power_label, 2, 1)
+
+        results_grid.addWidget(QLabel("Total Consumed:"), 3, 0)
+        total_energy_label = _make_result_label()
+        total_energy_label.setStyleSheet(f"color: {COLORS['accent']}; font-weight: bold;")
+        results_grid.addWidget(total_energy_label, 3, 1)
+
+        results_grid.addWidget(QLabel("Battery life:"), 4, 0)
+        battery_life_label = _make_result_label()
+        results_grid.addWidget(battery_life_label, 4, 1)
+
+        main_layout.addLayout(results_grid)
+        energy_group.setLayout(main_layout)
+
+        widgets = {
+            'device_combo': device_combo,
+            'ranging_mode_combo': ranging_mode_combo,
+            'uwb_freq_spin': uwb_freq_spin,
+            'num_anchors_spin': num_anchors_spin,
+            'imu_enabled_check': imu_enabled_check,
+            'battery_spin': battery_spin,
+            'open_window_btn': open_window_btn,
+            'energy_msg_label': energy_msg_label,
+            'energy_ranging_label': energy_ranging_label,
+            'total_power_label': total_power_label,
+            'total_energy_label': total_energy_label,
+            'battery_life_label': battery_life_label,
+        }
+
+        return energy_group, widgets

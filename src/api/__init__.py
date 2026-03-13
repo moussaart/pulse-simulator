@@ -30,7 +30,8 @@ from src.api.collectors import (
 from src.api.adapters import (
     ChannelDataAdapter,
     FilterDataAdapter,
-    GeometryDataAdapter
+    GeometryDataAdapter,
+    EnergyDataAdapter,
 )
 from src.api.export import DataExporter
 
@@ -49,6 +50,7 @@ __all__ = [
     'ChannelDataAdapter',
     'FilterDataAdapter',
     'GeometryDataAdapter',
+    'EnergyDataAdapter',
     
     # Export
     'DataExporter'

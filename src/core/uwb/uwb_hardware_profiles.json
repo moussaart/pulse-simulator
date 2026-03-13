@@ -1,0 +1,50 @@
+{
+  "DW3000 (DW3110/DW3120)": {
+    "tx_current_mA": 14.0,
+    "rx_current_mA": 16.0,
+    "idle_current_mA": 15.0,
+    "notes": "TX power ~+14 dBm. Data=850 kbps/6.8 Mbps."
+  },
+  "DW3300Q": {
+    "tx_current_mA": 14.0,
+    "rx_current_mA": 16.0,
+    "idle_current_mA": 5.0,
+    "notes": "TX EIRP ~-7 dBm; Auto grade."
+  },
+  "DWM3000 (mod)": {
+    "tx_current_mA": 40.0,
+    "rx_current_mA": 50.0,
+    "idle_current_mA": 15.0,
+    "notes": "Includes regulators; TX power ~+14 dBm."
+  },
+  "SR040 (NXP)": {
+    "tx_current_mA": 22.0,
+    "rx_current_mA": 25.0,
+    "idle_current_mA": 5.0,
+    "notes": "TX up to +10.5 dBm; coin-cell. (Values are estimates)"
+  },
+  "SR150 (NXP)": {
+    "tx_current_mA": 30.0,
+    "rx_current_mA": 35.0,
+    "idle_current_mA": 10.0,
+    "notes": "TX >+10 dBm; 2xRx front-end. (Values are estimates)"
+  },
+  "NCJ29D5 (NXP)": {
+    "tx_current_mA": 35.0,
+    "rx_current_mA": 40.0,
+    "idle_current_mA": 12.0,
+    "notes": "TX ~+14 dBm (implied); automotive. (Values are estimates)"
+  },
+  "OL23D0 (NXP)": {
+    "tx_current_mA": 12.0,
+    "rx_current_mA": 14.0,
+    "idle_current_mA": 3.0,
+    "notes": "MCU+UWB; low-power IoT. (Values are estimates)"
+  },
+  "DW1000 Default": {
+    "tx_current_mA": 70.0,
+    "rx_current_mA": 110.0,
+    "idle_current_mA": 12.0,
+    "notes": "Default legacy parameters from DW1000."
+  }
+}

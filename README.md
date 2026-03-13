@@ -50,6 +50,7 @@ This project combines a robust physics-based simulation engine with a modular Gr
 *   **📊 Real-time Visualization**: Watch the Channel Impulse Response (CIR) live, analyze error plots, and replay trajectories.
 *   **🛠️ Modular GUI**: Drag-and-drop panels, custom algorithm wizard, and interactive scenario designer.
 *   **🧩 Extensibility**: Add your own localization algorithms via the built-in wizard without modifying the core engine.
+*   **🔋 Energy Profiling**: Real-time estimation of tag battery life based on hardware profiles (DW3000, NXP, etc.) and communication protocols.
 *   **📁 Scenario Management**: Save, load, and share simulation scenarios (anchors, trajectories, obstacles).
 
 ---
@@ -202,6 +203,19 @@ The simulation leverages **NVIDIA CUDA** via `CuPy` to accelerate heavy matrix o
     *   `path_loss_kernel`: Vectorized frequency-dependent path loss and shadowing computation.
 
 The `src/core/parallel` module provides a unified `ParallelUtils` interface that keeps the core physics engine agnostic of the underlying hardware.
+
+---
+
+## 🔋 Energy Consumption Modeling
+
+PULSE includes a sophisticated **Energy Estimation Module** to predict the battery life of UWB tags in various deployment scenarios.
+
+*   **Hardware-Aware**: Includes power profiles for industry-standard chips like **Decawave DW3000** and **NXP SR150**.
+*   **Protocol-Dependent**: Accounts for the different number of messages in **SS-TWR** vs. **DS-TWR**.
+*   **Dynamic Simulation**: Calculates cumulative energy consumption as the agent moves through the environment.
+*   **IMU Integration**: Estimates additional power draw when sensor fusion (IMU) is active.
+
+Detailed math and hardware specs can be found in **[UWB Modeling Documentation](docs/uwb_modeling.md)**.
 
 ---
 

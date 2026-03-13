@@ -230,3 +230,37 @@ flowchart TD
     style Final fill:#f3e5f5,stroke:#4a148c
     style Geom fill:#fff3e0,stroke:#e65100
 ```
+
+---
+
+## 7. Energy Consumption Modeling (Battery Life)
+
+### Concept
+Calculating the lifespan of a UWB tag requires modeling the current draw of the radio during its active and idle states. Tag energy consumption is primarily the sum of **UWB Ranging** and **Inertial Measurement (IMU)** costs.
+
+### Mathematical Model
+We use a **Duty-Cycle based power model**. The average power $P_{avg}$ in milli-Watts (mW) is computed as:
+
+1.  **Energy per Ranging ($E_{rng}$):**
+    $$ E_{rng} = V \cdot \left( I_{TX} \cdot t_{TX} \cdot N_{TX} + I_{RX} \cdot t_{RX} \cdot N_{RX} \right) $$
+    *   $N_{TX}, N_{RX}$: Number of messages (Protocol-dependent).
+2.  **Average UWB Power ($P_{UWB}$):**
+    $$ P_{UWB} = E_{rng} \cdot F_{update} \cdot N_{anchors} + P_{idle} \cdot (1 - \text{DutyCycle}) $$
+3.  **Total Power ($P_{total}$):**
+    $$ P_{total} = P_{UWB} + P_{IMU} $$
+
+### Hardware Profiles
+PULSE includes predefined profiles for common UWB hardware modules based on industry datasheets:
+
+| Hardware Profile | TX Current (mA) | RX Current (mA) | Idle (mA) | Notes |
+|---|---|---|---|---|
+| **DW3000** | 14.0 | 16.0 | 15.0 | Peak values for Ch 5 |
+| **DW3300Q** | 14.0 | 16.0 | 5.0 | Automotive grade |
+| **DWM3000** | 40.0 | 50.0 | 15.0 | Module with regulators |
+| **SR150 (NXP)** | 30.0 | 35.0 | 10.0 | FiRa compatible |
+| **OL23D0 (NXP)**| 12.0 | 14.0 | 3.0 | Ultra-low power |
+
+### Effect on Ranging
+Lower update rates ($F_{update}$) and fewer anchors significantly extend battery life but reduce localization frequency and accuracy. The **Energy Details Window** in the GUI provides a live breakdown of these trade-offs.
+
+---

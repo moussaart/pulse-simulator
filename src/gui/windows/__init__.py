@@ -7,6 +7,7 @@ from .Distance_plot_window import DistancePlotsWindow
 from .imu_window import IMUWindow
 from src.core.uwb.imu import IMUData
 from .nlos_config_window import NLOSConfigWindow, NLOSConfigManager
+from .energy_window import EnergyWindow
 
 # - filter_selection_dialog
 # - Nlos_aware_params_window
@@ -18,5 +19,6 @@ __all__ = [
     'IMUData',
     'NLOSConfigWindow',
     'NLOSConfigManager',
+    'EnergyWindow',
 ]
 

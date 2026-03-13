@@ -4,6 +4,7 @@ UWB package: Contains UWB device and channel models.
 from .channel_model import ChannelConditions, UWBParameters, PathLossParams
 from .uwb_devices import Anchor, Tag, Position, UWBMessage, MessageType
 from .Nlos_zones import NLOSZone, PolygonNLOSZone, MovingNLOSZone
+from .energy_model import EnergyCalculator, EnergyConfig, EnergyResult, RangingMode
 
 __all__ = [
     'ChannelConditions',
@@ -16,5 +17,9 @@ __all__ = [
     'Tag',
     'Position',
     'UWBMessage',
-    'MessageType'
+    'MessageType',
+    'EnergyCalculator',
+    'EnergyConfig',
+    'EnergyResult',
+    'RangingMode',
 ]
