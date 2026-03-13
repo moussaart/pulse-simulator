@@ -6,14 +6,14 @@ This script serves as the main entry point for the UWB localization simulation a
 It sets up the Python path correctly and launches the application.
 
 Usage:
-    python run.py
+    python main.py
 """
 
 import sys
 from pathlib import Path
 
 # Add the project root to Python path to enable proper imports
-project_root = Path(__file__).parent
+project_root = Path(__file__).resolve().parent
 sys.path.insert(0, str(project_root))
 
 # Seed writable user data on first frozen run (no-op in development)

@@ -1,0 +1,19 @@
+{
+    "include": [
+        "src",
+        "main.py"
+    ],
+    "exclude": [
+        "**/node_modules",
+        "**/__pycache__",
+        "src/UWB data"
+    ],
+    "executionEnvironments": [
+        {
+            "root": ".",
+            "extraPaths": [
+                "."
+            ]
+        }
+    ]
+}
