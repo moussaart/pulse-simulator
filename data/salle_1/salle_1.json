@@ -215,7 +215,7 @@
         "freq_decay": 1.0,
         "cluster_decay": 17.6,
         "ray_decay": 5.1,
-        "toa_threshold": 0.25,
-        "fixed_noise": 0.13
+        "toa_threshold": 0.05000000000000002,
+        "fixed_noise": 0.06000000000000003
     }
 }

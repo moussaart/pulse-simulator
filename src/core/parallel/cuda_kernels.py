@@ -690,11 +690,11 @@ def batch_measure_distances(
         total_error = measured_dist - dist
         
         # Filter unrealistic spikes
-        if is_los and abs(total_error) > 0.6:
-            total_error = 0.6 if total_error > 0 else -0.6
+        if is_los and abs(total_error) > 0.2:
+            total_error = 0.2 if total_error > 0 else -0.2
             measured_dist = dist + total_error
-        elif not is_los and abs(total_error) > 0.8:
-            total_error = 0.8 if total_error > 0 else -0.8
+        elif not is_los and abs(total_error) > 0.4:
+            total_error = 0.4 if total_error > 0 else -0.4
             measured_dist = dist + total_error
         
         stats = stats_list[i]
