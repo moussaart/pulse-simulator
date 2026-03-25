@@ -253,52 +253,6 @@ class DataExporter:
             
         print(f"Exported PyTorch dataset to {path}")
     
-    def to_tensorflow_tfrecord(self, samples: List[DataSample], path: str) -> None:
-        """
-        Export samples to TensorFlow TFRecord format.
-        Requires tensorflow to be installed.
-        
-        Args:
-            samples: List of DataSample objects
-            path: Output file path (.tfrecord)
-        """
-        try:
-            import tensorflow as tf
-        except ImportError:
-            print("TensorFlow not installed. Using NPZ format instead.")
-            self.to_npz(samples, path.replace('.tfrecord', '.npz'))
-            return
-            
-        if not samples:
-            print("No samples to export")
-            return
-        
-        # Ensure directory exists
-        Path(path).parent.mkdir(parents=True, exist_ok=True)
-        
-        with tf.io.TFRecordWriter(path) as writer:
-            for sample in samples:
-                feature = {
-                    'timestamp': tf.train.Feature(
-                        float_list=tf.train.FloatList(value=[sample.timestamp])),
-                    'tag_x': tf.train.Feature(
-                        float_list=tf.train.FloatList(value=[sample.tag_position_gt[0]])),
-                    'tag_y': tf.train.Feature(
-                        float_list=tf.train.FloatList(value=[sample.tag_position_gt[1]])),
-                    'distances_measured': tf.train.Feature(
-                        float_list=tf.train.FloatList(value=sample.distances_measured)),
-                    'distances_true': tf.train.Feature(
-                        float_list=tf.train.FloatList(value=sample.distances_true)),
-                    'los_conditions': tf.train.Feature(
-                        int64_list=tf.train.Int64List(
-                            value=[1 if los else 0 for los in sample.los_conditions])),
-                }
-                
-                example = tf.train.Example(features=tf.train.Features(feature=feature))
-                writer.write(example.SerializeToString())
-                
-        print(f"Exported {len(samples)} samples to {path}")
-    
     def create_streaming_generator(self, 
                                     buffer: DataBuffer) -> Generator[DataSample, None, None]:
         """

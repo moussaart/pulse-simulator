@@ -3,6 +3,8 @@ from concurrent.futures import ThreadPoolExecutor
 from src.core.uwb.uwb_devices import Tag, Position
 from filterpy.common import Q_discrete_white_noise
 from filterpy.kalman import ExtendedKalmanFilter
+from src.core.parallel.gpu_backend import get_array_module, to_cpu
+from src.core.parallel.parallel_utils import vectorized_jacobian
 
 
 
@@ -118,19 +120,13 @@ class LocalizationAlgorthimes():
         # Update step
         if len(measurements) > 0:
             z = np.array(measurements)
-            H = np.zeros((len(measurements), 4))
-            h = np.zeros(len(measurements))
             
-            # Calculate measurement Jacobian and predicted measurements
-            for i, anchor in enumerate(anchors[:len(measurements)]):
-                dx = ekf_state[0] - anchor.position.x
-                dy = ekf_state[1] - anchor.position.y
-                d = np.sqrt(dx**2 + dy**2)
-                if d < 1e-6:
-                    d = 1e-6
-                H[i,0] = dx/d
-                H[i,1] = dy/d
-                h[i] = d
+            # Vectorized Jacobian (GPU-accelerated when CuPy is available)
+            anchor_positions = np.array([[a.position.x, a.position.y]
+                                         for a in anchors[:len(measurements)]])
+            H, h = vectorized_jacobian(ekf_state, anchor_positions)
+            H = to_cpu(H)
+            h = to_cpu(h)
             
             # Use provided R or default
             if R is None:
@@ -346,19 +342,13 @@ class LocalizationAlgorthimes():
         # Update step
         if len(measurements) > 0:
             z = np.array(measurements)
-            H = np.zeros((len(measurements), 4))
-            h = np.zeros(len(measurements))
             
-            # Calculate measurement Jacobian and predicted measurements
-            for j, anchor in enumerate(anchors[:len(measurements)]):
-                dx = aekf_state[0] - anchor.position.x
-                dy = aekf_state[1] - anchor.position.y
-                d = np.sqrt(dx**2 + dy**2)
-                if d < 1e-6:
-                    d = 1e-6
-                H[j,0] = dx/d
-                H[j,1] = dy/d
-                h[j] = d
+            # Vectorized Jacobian (GPU-accelerated when CuPy is available)
+            anchor_positions = np.array([[a.position.x, a.position.y]
+                                         for a in anchors[:len(measurements)]])
+            H, h = vectorized_jacobian(aekf_state, anchor_positions)
+            H = to_cpu(H)
+            h = to_cpu(h)
             
             # Use provided R or default; reset if size changed (anchor count changed)
             if R is None or R.shape[0] != len(measurements):
@@ -455,19 +445,13 @@ class LocalizationAlgorthimes():
         # Update step
         if len(measurements) > 0:
             z = np.array(measurements)
-            H = np.zeros((len(measurements), 4))
-            h = np.zeros(len(measurements))
             
-            # Calculate measurement Jacobian and predicted measurements
-            for j, anchor in enumerate(anchors[:len(measurements)]):
-                dx = aekf_state[0] - anchor.position.x
-                dy = aekf_state[1] - anchor.position.y
-                d = np.sqrt(dx**2 + dy**2)
-                if d < 1e-6:
-                    d = 1e-6
-                H[j,0] = dx/d
-                H[j,1] = dy/d
-                h[j] = d
+            # Vectorized Jacobian (GPU-accelerated when CuPy is available)
+            anchor_positions = np.array([[a.position.x, a.position.y]
+                                         for a in anchors[:len(measurements)]])
+            H, h = vectorized_jacobian(aekf_state, anchor_positions)
+            H = to_cpu(H)
+            h = to_cpu(h)
             
             # Use provided R or default; reset if size changed (anchor count changed)
             if R is None or R.shape[0] != len(measurements):

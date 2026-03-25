@@ -47,7 +47,8 @@ from src.gui.windows.Distance_plot_window import DistancePlotsWindow
 from src.gui.windows.cir_window import CIRWindow
 
 # AI Training API import
-from src.api import TrainingDataAPI
+from src.api import TrainingDataAPI, AITrainingAPI
+from src.gui.windows.ai_training_window import AITrainingWindow
 from src.gui.windows.algorithm_creation_window import AlgorithmCreationWindow
 from src.core.uwb.energy_model import EnergyCalculator, EnergyConfig
 from src.gui.windows.energy_window import EnergyWindow
@@ -124,6 +125,10 @@ class LocalizationApp(QMainWindow):
         # Initialize AI Training Data API (disabled by default)
         # Access via: app.training_api.enable_collection() / disable_collection()
         self.training_api = TrainingDataAPI(buffer_size=10000)
+        
+        # Scoped AI Training API for GET/SET operations (training-only, no side-effects)
+        self.ai_training_api = AITrainingAPI(sim_context=self)
+        self.ai_window = None
         
 
 
@@ -1126,24 +1131,40 @@ class LocalizationApp(QMainWindow):
             self.energy_window.refresh()
     
     def toggle_ai_data_collection(self):
-        """Toggle AI Training Data Collection and print data when stopped"""
+        """Toggle the independent AI Training Window"""
         if self.ai_data_btn.isChecked():
-            # Start collection
-            self.training_api.select_data(
-                channel=True,
-                filter_outputs=True,
-                ground_truth=True,
-                imu=True
+            from PyQt5.QtWidgets import QInputDialog
+            
+            num_agents, ok = QInputDialog.getInt(
+                self, 
+                "Number of Simulations", 
+                "Enter number of simultaneous agents (multi-point):", 
+                1, 1, 100
             )
-            self.training_api.enable_collection()
+            
+            if not ok:
+                self.ai_data_btn.blockSignals(True)
+                self.ai_data_btn.setChecked(False)
+                self.ai_data_btn.blockSignals(False)
+                return
+                
+            self.ai_window = AITrainingWindow(main_app=self, num_agents=num_agents)
+            self.ai_window.show()
+            self.ai_window.refresh_base_plot()
+            
             print("=" * 80)
-            print("🤖 AI Training Data Collection: ENABLED")
+            print("🤖 AI Training Window: OPENED")
+            print(f"Waiting for external PyTorch client to connect for {num_agents} agents...")
             print("=" * 80)
-            self.ai_data_btn.setText("🤖 Stop AI")
-            self.ai_data_btn.setToolTip("Stop collection and print data")
+            self.ai_data_btn.setText("🤖 Close AI")
+            self.ai_data_btn.setToolTip("Close AI Training Window")
         else:
-            # Stop collection and print data
-            self.training_api.disable_collection()
+            if self.ai_window:
+                self.ai_window.close()
+            
+            self.ai_data_btn.setText("🤖 Start AI")
+            self.ai_data_btn.setToolTip("Open AI Training Window")
+
             
             # Get statistics
             stats = self.training_api.get_statistics()

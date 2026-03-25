@@ -11,6 +11,7 @@ from .uwb_types import (
 from .Nlos_zones import NLOSZone, PolygonNLOSZone, MovingNLOSZone
 from src.core.parallel.gpu_backend import gpu_manager, get_array_module, to_gpu, to_cpu
 from src.core.parallel.cuda_kernels import vectorized_cir_pulse_superposition
+from src.core.parallel.geometry_kernels import batch_los_check_gpu
 
 logger = logging.getLogger(__name__)
 
@@ -773,6 +774,35 @@ class UWBChannelModel:
     def check_los_to_anchor(self, anchor_pos: Position, tag_pos: Position) -> bool:
         """Alias for check_los_condition for backward compatibility"""
         return self.check_los_condition(anchor_pos, tag_pos)
+
+    def batch_update_los_conditions(
+        self, anchor_positions_array: np.ndarray, tag_pos: Position
+    ) -> np.ndarray:
+        """
+        GPU-accelerated batch LOS check for all anchors simultaneously.
+
+        Uses a CUDA kernel (via geometry_kernels.py) to test all
+        anchor-tag line segments against all zone edges in parallel.
+
+        Args:
+            anchor_positions_array: (N_anchors, 2) array of [x, y]
+            tag_pos: Tag Position object
+
+        Returns:
+            Boolean NumPy array (N_anchors,): True = LOS, False = NLOS
+        """
+        import time as _time
+        # Update moving zones first
+        current_time = _time.time()
+        for zone in self.moving_nlos_zones:
+            zone.update_position(current_time)
+
+        return batch_los_check_gpu(
+            anchor_positions=anchor_positions_array,
+            tag_position=(tag_pos.x, tag_pos.y),
+            nlos_zones=self.nlos_zones,
+            moving_nlos_zones=self.moving_nlos_zones
+        )
 
     # -------------------------------------------------------------------------
     # IV. Backward Compatibility & Helper Methods

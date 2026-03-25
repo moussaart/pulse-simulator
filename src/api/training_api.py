@@ -248,16 +248,6 @@ class TrainingDataAPI:
         samples = self._collector.get_all_samples()
         self._exporter.to_pytorch_dataset(samples, path)
     
-    def export_for_tensorflow(self, path: str) -> None:
-        """
-        Export data in TensorFlow TFRecord format.
-        
-        Args:
-            path: Output file path (.tfrecord)
-        """
-        samples = self._collector.get_all_samples()
-        self._exporter.to_tensorflow_tfrecord(samples, path)
-    
     # ==================== Streaming ====================
     
     def stream_to_callback(self, callback: Callable[[DataSample], None]) -> None:

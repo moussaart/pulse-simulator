@@ -226,34 +226,37 @@ def batch_toa_detection(
     use_gpu = gpu_manager.should_use_gpu(n_cirs * max_len)
     
     if use_gpu and n_cirs > 1:
-        # Padded batch approach
-        t_batch = np.zeros((n_cirs, max_len), dtype=np.float64)
-        h_batch = np.zeros((n_cirs, max_len), dtype=np.complex128)
-        lengths = np.zeros(n_cirs, dtype=np.int64)
+        # Padded batch approach — GPU-native padding (no CPU round-trip)
+        # Check if inputs are already on GPU
+        inputs_on_gpu = hasattr(time_vectors[0], 'device')
+        cp = gpu_manager.cupy
         
-        for i, (t_vec, h_t) in enumerate(zip(time_vectors, h_t_list)):
-            # If t_vec/h_t are already on GPU, we need to bring them back to CPU for packing?
-            # Or we can pack them on GPU? Packing on GPU is harder with padding.
-            # Best approach for now: optimized "ping" to CPU for packing, then batch "pong" to GPU.
-            # OR better: if they are GPU arrays, use cp.zeros and copy into them?
-            # Complicated due to variable lengths.
-            # Let's check type.
+        if inputs_on_gpu and cp is not None:
+            # Pack directly on GPU — ZERO PCIe transfers
+            t_batch = cp.zeros((n_cirs, max_len), dtype=cp.float64)
+            h_batch = cp.zeros((n_cirs, max_len), dtype=cp.complex128)
+            lengths = np.zeros(n_cirs, dtype=np.int64)
             
-            # If inputs are already GPU arrays (from return_on_device=True)
-            if hasattr(t_vec, 'device'): # CuPy array
-                # Use to_cpu for packing (costly but necessary for ragged batching unless we rewrite to avoid padding)
-                # NOTE: For maximum performance we should pre-allocate max size on GPU, but length varies randomly.
-                t_vec = to_cpu(t_vec)
-                h_t = to_cpu(h_t)
+            for i, (t_vec, h_t) in enumerate(zip(time_vectors, h_t_list)):
+                L = len(t_vec)
+                t_batch[i, :L] = t_vec  # GPU-to-GPU copy (fast)
+                h_batch[i, :L] = h_t    # GPU-to-GPU copy (fast)
+                lengths[i] = L
             
-            L = len(t_vec)
-            t_batch[i, :L] = t_vec
-             # Ensure h_t is complex
-            h_batch[i, :L] = h_t
-            lengths[i] = L
-        
-        # Transfer to GPU
-        t_g, h_g = to_gpu_batch(t_batch, h_batch)
+            t_g, h_g = t_batch, h_batch
+        else:
+            # CPU path — pack on CPU then transfer once
+            t_batch = np.zeros((n_cirs, max_len), dtype=np.float64)
+            h_batch = np.zeros((n_cirs, max_len), dtype=np.complex128)
+            lengths = np.zeros(n_cirs, dtype=np.int64)
+            
+            for i, (t_vec, h_t) in enumerate(zip(time_vectors, h_t_list)):
+                L = len(t_vec)
+                t_batch[i, :L] = t_vec
+                h_batch[i, :L] = h_t
+                lengths[i] = L
+            
+            t_g, h_g = to_gpu_batch(t_batch, h_batch)
         
         # Compute PDP for all CIRs at once
         pdp = xp.abs(h_g) ** 2
@@ -424,25 +427,40 @@ def batch_channel_statistics(
     use_gpu = gpu_manager.should_use_gpu(n_cirs * max_len)
     
     if use_gpu and n_cirs > 1:
-        # Pad and batch
-        t_batch = np.zeros((n_cirs, max_len), dtype=np.float64)
-        h_batch = np.zeros((n_cirs, max_len), dtype=np.complex128)
-        mask_batch = np.zeros((n_cirs, max_len), dtype=np.float64)
-        lengths = []
+        # Pad and batch — GPU-native padding (no CPU round-trip)
+        inputs_on_gpu = hasattr(time_vectors[0], 'device')
+        cp = gpu_manager.cupy
         
-        for i, (t_vec, h_t) in enumerate(zip(time_vectors, h_t_list)):
-            # Handle potential GPU arrays
-            if hasattr(t_vec, 'device'):
-                t_vec = to_cpu(t_vec)
-                h_t = to_cpu(h_t)
-                
-            L = len(t_vec)
-            t_batch[i, :L] = t_vec
-            h_batch[i, :L] = h_t
-            mask_batch[i, :L] = 1.0
-            lengths.append(L)
-        
-        t_g, h_g, mask_g = to_gpu_batch(t_batch, h_batch, mask_batch)
+        if inputs_on_gpu and cp is not None:
+            # Pack directly on GPU
+            t_batch = cp.zeros((n_cirs, max_len), dtype=cp.float64)
+            h_batch = cp.zeros((n_cirs, max_len), dtype=cp.complex128)
+            mask_batch = cp.zeros((n_cirs, max_len), dtype=cp.float64)
+            lengths = []
+            
+            for i, (t_vec, h_t) in enumerate(zip(time_vectors, h_t_list)):
+                L = len(t_vec)
+                t_batch[i, :L] = t_vec  # GPU-to-GPU copy
+                h_batch[i, :L] = h_t
+                mask_batch[i, :L] = 1.0
+                lengths.append(L)
+            
+            t_g, h_g, mask_g = t_batch, h_batch, mask_batch
+        else:
+            # CPU path — pack on CPU then transfer once
+            t_batch = np.zeros((n_cirs, max_len), dtype=np.float64)
+            h_batch = np.zeros((n_cirs, max_len), dtype=np.complex128)
+            mask_batch = np.zeros((n_cirs, max_len), dtype=np.float64)
+            lengths = []
+            
+            for i, (t_vec, h_t) in enumerate(zip(time_vectors, h_t_list)):
+                L = len(t_vec)
+                t_batch[i, :L] = t_vec
+                h_batch[i, :L] = h_t
+                mask_batch[i, :L] = 1.0
+                lengths.append(L)
+            
+            t_g, h_g, mask_g = to_gpu_batch(t_batch, h_batch, mask_batch)
         
         # PDP for all CIRs
         pdp = xp.abs(h_g) ** 2 * mask_g
