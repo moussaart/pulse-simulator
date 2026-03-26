@@ -251,12 +251,20 @@ class AlgorithmCreationWindow(QDialog):
             code.extend([
                 "        state = input_data.state",
                 "        covariance = input_data.covariance",
+                "        previous_state = input_data.previous_state",
+                "        previous_covariance = input_data.previous_covariance",
+                "        Q = input_data.Q",
+                "        R = input_data.R",
                 "        initialized = input_data.initialized",
                 "",
                 "        if not initialized:",
                 "            # Initialize state if needed",
                 "            state = np.zeros(4) # x, y, vx, vy",
                 "            covariance = np.eye(4)",
+                "            previous_state = np.zeros(4)",
+                "            previous_covariance = np.eye(4)",
+                "            Q = np.eye(4) * 0.1",
+                "            R = np.eye(4) * 0.1",
                 "            initialized = True",
                 ""
             ])
@@ -288,7 +296,11 @@ class AlgorithmCreationWindow(QDialog):
             "            position=(float(x), float(y)),",
             "            state=state if 'state' in locals() else input_data.state,",
             "            covariance=covariance if 'covariance' in locals() else input_data.covariance,",
-            "            initialized=initialized if 'initialized' in locals() else input_data.initialized",
+            "            initialized=initialized if 'initialized' in locals() else input_data.initialized,",
+            "            previous_state=previous_state if 'previous_state' in locals() else input_data.previous_state,",
+            "            previous_covariance=previous_covariance if 'previous_covariance' in locals() else input_data.previous_covariance,",
+            "            Q=Q if 'Q' in locals() else input_data.Q,",
+            "            R=R if 'R' in locals() else input_data.R",
             "        )"
         ])
         

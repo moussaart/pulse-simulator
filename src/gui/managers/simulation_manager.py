@@ -539,6 +539,10 @@ class SimulationManager:
                     dt=self.parent.dt,
                     state=self.parent.kf_state if hasattr(self.parent, 'kf_state') else None,
                     covariance=self.parent.kf_P if hasattr(self.parent, 'kf_P') else None,
+                    previous_state=getattr(self.parent, 'previous_kf_state', None),
+                    previous_covariance=getattr(self.parent, 'previous_kf_P', None),
+                    Q=getattr(self.parent, 'aekf_Q', None),
+                    R=getattr(self.parent, 'aekf_R', None),
                     initialized=self.parent.kf_initialized if hasattr(self.parent, 'kf_initialized') else False,
                     imu_data_on=False,
                     control_input=u,
@@ -556,6 +560,16 @@ class SimulationManager:
                         self.parent.kf_P = output.covariance
                     if hasattr(self.parent, 'kf_initialized'):
                         self.parent.kf_initialized = output.initialized
+                    
+                    # Optional advanced state fields
+                    if hasattr(self.parent, 'previous_kf_state') and output.previous_state is not None:
+                        self.parent.previous_kf_state = output.previous_state
+                    if hasattr(self.parent, 'previous_kf_P') and output.previous_covariance is not None:
+                        self.parent.previous_kf_P = output.previous_covariance
+                    if hasattr(self.parent, 'aekf_Q') and output.Q is not None:
+                        self.parent.aekf_Q = output.Q
+                    if hasattr(self.parent, 'aekf_R') and output.R is not None:
+                        self.parent.aekf_R = output.R
                         
                     return output.position
                     

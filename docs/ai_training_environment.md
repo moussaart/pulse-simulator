@@ -11,25 +11,25 @@ external RL agents, plus a programmatic API for configuration and data retrieval
 ┌─────────────────────────────────────────────────────────────────┐
 │               PULSE Simulator (PyQt5)                           │
 │                                                                 │
-│  ┌──────────────────┐   ┌──────────────────────────────────┐    │
-│  │  Main Simulation  │   │        AI Training Module         │    │
-│  │  (Localization    │   │                                    │    │
-│  │   Engine)         │   │  ┌──────────┐  ┌──────────────┐   │    │
-│  │                   │──▶│  │AITraining│  │ AIGymServer   │   │    │
-│  │  • Tag motion     │   │  │   API    │  │ (TCP:5555)    │   │    │
-│  │  • Channel model  │   │  │ GET/SET  │  │               │   │    │
-│  │  • Localization   │   │  └──────────┘  └───────┬───────┘   │    │
-│  │  • Energy model   │   │                        │           │    │
-│  └──────────────────┘   └────────────────────────┼───────────┘    │
-│                                                   │               │
-└───────────────────────────────────────────────────┼───────────────┘
+│  ┌───────────────────┐   ┌───────────────────────────────────┐    │
+│  │  Main Simulation  │   │        AI Training Module         │  │
+│  │  (Localization    │   │                                   │ │
+│  │   Engine)         │   │  ┌──────────┐  ┌──────────────┐   │  │
+│  │                   │──▶│  │AITraining│  │ AIGymServer   │ │  │
+│  │  • Tag motion     │   │  │   API    │  │ (TCP:5555)    │  │  │
+│  │  • Channel model  │   │  │ GET/SET  │  │               │  │  │
+│  │  • Localization   │   │  └──────────┘  └───────┬───────┘  │  │
+│  │  • Energy model   │   │                        │          │  │
+│  └───────────────────┘    └────────────────────────┼──────────┘  │
+│                                                   │             │
+└───────────────────────────────────────────────────┼─────────────┘
                                                     │ TCP/IP
-                                            ┌───────▼───────┐
-                                            │  External RL   │
+                                            ┌───────▼─────────┐
+                                            │  External RL    │
                                             │  Agent (PyTorch │
                                             │  / Stable       │
                                             │  Baselines)     │
-                                            └────────────────┘
+                                            └─────────────────┘
 ```
 
 ## API Reference

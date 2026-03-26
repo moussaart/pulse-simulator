@@ -13,7 +13,11 @@ class AlgorithmInput:
     tag: Any            # Tag object
     dt: float           # Time step
     state: Optional[np.ndarray] = None
+    previous_state: Optional[np.ndarray] = None
     covariance: Optional[np.ndarray] = None
+    previous_covariance: Optional[np.ndarray] = None
+    Q: Optional[np.ndarray] = None
+    R: Optional[np.ndarray] = None
     initialized: bool = False
     imu_data_on: bool = False
     control_input: Optional[np.ndarray] = None  # [ax, ay]
@@ -31,6 +35,10 @@ class AlgorithmOutput:
     state: np.ndarray
     covariance: np.ndarray
     initialized: bool
+    previous_state: Optional[np.ndarray] = None
+    previous_covariance: Optional[np.ndarray] = None
+    Q: Optional[np.ndarray] = None
+    R: Optional[np.ndarray] = None
     extra_data: Optional[dict] = None  # For debug or visualization (e.g., innovation history)
 
 class BaseLocalizationAlgorithm(ABC):
