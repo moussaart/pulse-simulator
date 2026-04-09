@@ -26,7 +26,7 @@ class AekfAlgorithm(BaseLocalizationAlgorithm):
 
     @property
     def name(self) -> str:
-        return "AEKF"
+        return "Adaptive Extended Kalman Filter"
 
     def initialize(self) -> None:
         pass
@@ -52,6 +52,7 @@ class AekfAlgorithm(BaseLocalizationAlgorithm):
             if not initialized:
                 state, covariance, Q, R = s_init, c_init, q_init, r_init
                 initialized = True
+            
             
 
         # ── 2. Prediction ───────────────────────────────────────────────

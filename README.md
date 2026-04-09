@@ -188,6 +188,18 @@ For mathematical definitions and derivations, see **[Localization Algorithms](do
 
 ---
 
+## 🤖 AI Training & RL Environments
+
+PULSE provides a dedicated AI training environment that allows researchers to train Reinforcement Learning (RL) agents for indoor localization tasks.
+
+*   **Offline Data Collection (`TrainingDataAPI`)**: Easily collect and export massive datasets (NPZ, CSV, JSON) of simulation data including UWB channels, CIR, ground truth, and filter outputs for offline training.
+*   **Online Training (`AITrainingAPI` & `AIGymServer`)**: A Client-Server TCP architecture that exposes a `gymnasium.Env` interface. Connect external PyTorch/Stable-Baselines agents without interfering with the simulation loop.
+*   **External AI Client (`external_ai_client`)**: A ready-to-use example project showing how to connect an external AI agent to select the best Line-of-Sight (LOS) anchors dynamically.
+
+For detailed API usage and setup instructions, see the **[AI Training Environment Documentation](docs/ai_training_environment.md)** and the `external_ai_client/README.md`.
+
+---
+
 ## ⚡ Hardware Acceleration
 
 To handle the computational load of simulating thousands of multipath rays in real-time, the engine features a dedicated **Parallel Computing Module**.
@@ -252,12 +264,18 @@ PULSE-project/
 │
 ├── docs/                       # Technical documentation
 │   ├── assets/                 # Images & diagrams for docs
+│   ├── ai_training_environment.md # AI Training API reference
 │   ├── GUI_README.md           # GUI user guide
 │   ├── localization_algorithms.md
 │   └── uwb_modeling.md
 │
 ├── documentation/              # Web-based documentation (HTML)
-│   └── assets/                 # Images for web docs (incl. IRISA logo)
+│   ├── assets/                 # Images for web docs (incl. IRISA logo)
+│   └── ai_training.html        # Web-based AI documentation
+│
+├── external_ai_client/         # External AI agent examples
+│   ├── pulse_rl_env.py         # Gymnasium environment
+│   └── train_agent.py          # AI example training script
 │
 ├── installer/                  # Installer scripts & resources
 │

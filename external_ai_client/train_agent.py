@@ -1,6 +1,6 @@
 import socket
 import json
-import torch
+import torch    
 import torch.nn as nn
 import torch.optim as optim
 from torch.distributions import Categorical
@@ -26,8 +26,8 @@ print(f"==========================================")
 class AnchorSelectNetwork(nn.Module):
     def __init__(self, num_anchors, hidden_size=64):
         super(AnchorSelectNetwork, self).__init__()
-        # Input features: distance (1) + is_nlos (1) for each anchor
-        input_size = num_anchors * 2
+        # Input features: anchor positions (num_anchors * 2) + localization error (1)
+        input_size = num_anchors * 2 + 1
         
         self.net = nn.Sequential(
             nn.Linear(input_size, hidden_size),
@@ -68,6 +68,9 @@ def run_rl_loop():
     policy_net = None
     optimizer = None
     
+    # Store environment parameters once received
+    env_params_printed = False
+    
     try:
         for line in stream_reader:
             if not line.strip():
@@ -90,15 +93,27 @@ def run_rl_loop():
                     step = state_dict.get('step', 0)
                     agent_id = state_dict.get('agent_id', 0)
                     gt = state_dict.get('tag_position_gt', [0, 0, 0])
-                    measurements = state_dict.get('distances_measured', [])
-                    los_conditions = state_dict.get('los_conditions', [])
+                    anchor_positions = state_dict.get('anchor_positions', [])
+                    curr_error = state_dict.get('localization_error', 0.0)
+                    prev_error = state_dict.get('prev_localization_error', 0.0)
+                    los_conditions = state_dict.get('is_los', state_dict.get('los_conditions', []))
                     
+                    if not env_params_printed:
+                        print("\n" + "="*40)
+                        print(f" Environment Parameters:")
+                        print(f" - Algorithm: {state_dict.get('algorithm', 'Unknown')}")
+                        print(f" - Time Step (dt): {state_dict.get('dt', 'Unknown')}s")
+                        print(f" - Speed: {state_dict.get('movement_speed', 'Unknown')}m/s")
+                        print(f" - Pattern: {state_dict.get('movement_pattern', 'Unknown')}")
+                        print("="*40 + "\n")
+                        env_params_printed = True
+
                     if agent_id == 0:
                         print(f"[Step {step:04d}] Processing {len(states)} agents. Agent 0 GT: ({gt[0]:.2f}, {gt[1]:.2f})")
                     
                     # Dynamic Initialization of PyTorch network based on environment config
                     if policy_net is None:
-                        num_anchors = len(measurements)
+                        num_anchors = len(anchor_positions)
                         if num_anchors > 0:
                             policy_net = AnchorSelectNetwork(num_anchors=num_anchors).to(device)
                             optimizer = optim.Adam(policy_net.parameters(), lr=1e-3)
@@ -106,14 +121,15 @@ def run_rl_loop():
 
                     if num_anchors is None or num_anchors < 3:
                         # Fallback for environments with too few anchors
-                        action_indices = list(range(len(measurements)))
+                        action_indices = list(range(num_anchors if num_anchors else 0))
                         reward_val, policy_loss_val, entropy_val = 0.0, 0.0, 0.0
                     else:
                         # 2. PREPROCESS STATE
-                        dist_arr = np.array(measurements, dtype=np.float32) / 30.0 
-                        los_arr = np.array(los_conditions, dtype=np.float32)
+                        # State: flattened anchor positions + localization error
+                        anchor_arr = np.array(anchor_positions, dtype=np.float32).flatten() / 10.0 # Normalize roughly
+                        error_val = np.array([curr_error], dtype=np.float32)
                         
-                        state_features = np.column_stack((dist_arr, los_arr)).flatten()
+                        state_features = np.concatenate((anchor_arr, error_val))
                         state_tensor = torch.tensor(state_features, dtype=torch.float32, device=device)
                         
                         # 3. FORWARD PASS
@@ -125,11 +141,11 @@ def run_rl_loop():
                         action_indices = action_indices_tensor.tolist()
                         
                         # 4. COMPUTE REWARD
-                        chosen_los = [los_conditions[idx] for idx in action_indices]
-                        chosen_dists = [measurements[idx] for idx in action_indices]
-                        
-                        reward_val = sum([1.0 if los else -1.0 for los in chosen_los])
-                        reward_val -= 0.1 * sum(chosen_dists) # Distance penalty
+                        # +1 if error decreases, else -1
+                        if curr_error < prev_error:
+                            reward_val = 1.0
+                        else:
+                            reward_val = -1.0
                         
                         # 5. POLICY GRADIENT UPDATE
                         joint_log_prob = dist.log_prob(action_indices_tensor).sum()

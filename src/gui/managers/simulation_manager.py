@@ -518,8 +518,23 @@ class SimulationManager:
         algorithm_methods = self._algorithm_methods
         method = algorithm_methods.get(self.parent.algorithm)
         
-        u = np.array([self.parent.tag.imu_data.acc_x[-1], 
-                     self.parent.tag.imu_data.acc_y[-1]])
+        # Extract IMU data if available
+        accel = None
+        gyro = None
+        if hasattr(self.parent.tag, 'imu_data') and len(self.parent.tag.imu_data) > 0:
+            accel = np.array([
+                self.parent.tag.imu_data.acc_x[-1],
+                self.parent.tag.imu_data.acc_y[-1],
+                self.parent.tag.imu_data.acc_z[-1]
+            ])
+            gyro = np.array([
+                self.parent.tag.imu_data.gyro_x[-1],
+                self.parent.tag.imu_data.gyro_y[-1],
+                self.parent.tag.imu_data.gyro_z[-1]
+            ])
+        
+        # Legacy control input [ax, ay] for backward compatibility
+        u = accel[:2] if accel is not None else np.zeros(2)
         
         # Priority check for custom class-based algorithms
         if method and inspect.isclass(method) and issubclass(method, BaseLocalizationAlgorithm):
@@ -544,7 +559,9 @@ class SimulationManager:
                     Q=getattr(self.parent, 'aekf_Q', None),
                     R=getattr(self.parent, 'aekf_R', None),
                     initialized=self.parent.kf_initialized if hasattr(self.parent, 'kf_initialized') else False,
-                    imu_data_on=False,
+                    imu_data_on=self.parent.tag.imu_data_on if hasattr(self.parent.tag, 'imu_data_on') else False,
+                    accel=accel,
+                    gyro=gyro,
                     control_input=u,
                     is_los=is_los,
                     params={} # Add any extra params if needed

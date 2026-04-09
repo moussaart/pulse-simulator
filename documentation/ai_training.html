@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PULSE Simulator - AI Training Environment</title>
+    <!-- Fonts managed in CSS via @import -->
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+    <nav class="sidebar" id="sidebar">
+        <div class="sidebar-header">
+            <div class="logo-container">
+                <img src="assets/logo.svg" alt="PULSE Logo" class="logo-icon">
+                <div class="logo-text">PULSE</div>
+            </div>
+            <p class="subtitle">Simulator Docs v1.0</p>
+            <div class="theme-switch-wrapper">
+                <label class="theme-switch" for="checkbox">
+                    <input type="checkbox" id="checkbox" />
+                    <div class="slider round"></div>
+                </label>
+                <em>Dark Mode</em>
+            </div>
+        </div>
+        <ul class="nav-links">
+            <li><a href="../index.html">Introduction</a></li>
+            <li><a href="getting_started.html">Getting Started</a></li>
+            <li><a href="interface.html">User Guide</a></li>
+            <li><a href="simulation.html">Technical Reference</a></li>
+            <li><a href="advanced.html">Developer Guide</a></li>
+            <li><a href="ai_training.html" class="active">AI Training Environment</a></li>
+            <li><a href="researchers.html">Researchers</a></li>
+            <li><a href="license.html">License</a></li>
+        </ul>
+        <div class="sidebar-footer">
+             <p>&copy; 2026 PULSE Project</p>
+             <div style="margin-top: 10px; font-size: 0.85rem;">
+                <p style="margin-bottom: 5px; color: var(--text-tertiary);">Developed by <a href="https://tahamoussa.info/" target="_blank" style="font-weight: 500; color: var(--text-secondary);">Taha Moussa</a></p>
+                <div style="display: flex; gap: 10px;">
+                    <a href="https://www.linkedin.com/in/moussa-taha/" target="_blank" style="font-size: 0.8rem;">LinkedIn</a>
+                    <a href="https://github.com/moussaart" target="_blank" style="font-size: 0.8rem;">GitHub</a>
+                </div>
+             </div>
+        </div>
+    </nav>
+
+    <main class="content-wrapper">
+        <div class="content">
+            
+            <section id="ai-training-env" class="doc-section">
+                <h1>AI Training Environment</h1>
+                <p class="lead">Integrate Reinforcement Learning agents and collect bulk simulation data.</p>
+                <hr>
+
+                <h3>Architecture Overview</h3>
+                <p>The PULSE simulator provides a dedicated AI training environment with a clear separation between the <strong>main simulation</strong> and <strong>AI training logic</strong>. The architecture uses a TCP/IP socket for communication between the simulator and external RL agents, plus a programmatic API for configuration and data retrieval.</p>
+
+                <div style="text-align: center; margin: 2rem 0;">
+                    <img src="../docs/assets/ai_workflow.png" alt="AI Training Environment Architecture" style="max-width: 100%; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.1);"/>
+                </div>
+
+                <h3>Online AI Training Client</h3>
+                <p>The <code>external_ai_client</code> project folder contains the files needed to train a Reinforcement Learning agent (using OpenAI Gym / Gymnasium and PyTorch) that interacts with the PULSE Simulator.</p>
+
+                <div class="step">
+                    <h4>1. The Server (Inside PULSE Simulator)</h4>
+                    <p>We added a custom algorithm called <code>AI Gym Server (Port 5555)</code> directly into the simulator's code. When you select this algorithm in the GUI, it starts listening for an AI Agent to connect.</p>
+                </div>
+
+                <div class="step">
+                    <h4>2. The Client (external_ai_client folder)</h4>
+                    <p>The <code>pulse_rl_env.py</code> creates a standard <code>gymnasium.Env</code> and connects to the GUI via a TCP socket. It receives the current measurements and true positions (for rewards), sends back the chosen anchors (action), and lets the GUI do the heavy mathematically filtering (EKF) using <strong>only</strong> the selected anchors.</p>
+                </div>
+
+                <h3>Setup & Training</h3>
+                <ol>
+                    <li>Install the basics for your AI environment: <pre><code>pip install gymnasium numpy</code></pre></li>
+                    <li>Open the PULSE Simulator GUI.</li>
+                    <li>Go to the <strong>Algorithms</strong> selection panel and choose <strong>AI Gym Server (Port 5555)</strong>.</li>
+                    <li>Click <strong>Start</strong> to run the simulation scenario. It will wait for the AI to connect.</li>
+                    <li>Open a terminal in the <code>external_ai_client</code> folder and run:
+                        <pre><code>python train_agent.py</code></pre>
+                    </li>
+                </ol>
+                <p>As the AI Agent plays, the GUI updates dynamically. The AI is rewarded for selecting Line-of-Sight (LOS) anchors and penalized for using Non-Line-of-Sight (NLOS) anchors.</p>
+
+                <hr>
+                
+                <h3>API Reference</h3>
+                
+                <h4>AITrainingAPI — Configuration & Data Access</h4>
+                <p>The primary facade for AI training. Imported from <code>src.api</code>:</p>
+                <pre><code>from src.api import AITrainingAPI
+
+api = AITrainingAPI(sim_context=app)</code></pre>
+                
+                <div class="info-box">
+                    <h3>Scope Isolation</h3>
+                    <p>All SET operations modify a training-local configuration copy. The main simulation state is <strong>never</strong> affected.</p>
+                </div>
+
+                <h4>AIGymServer — RL Communication</h4>
+                <p>TCP server for OpenAI Gym-style interaction with external agents:</p>
+                <pre><code>from src.api.ai_gym_server import AIGymServer
+
+server = AIGymServer(host="localhost", port=5555)
+server.start()</code></pre>
+
+                <h4>TrainingDataAPI — Offline Data Collection</h4>
+                <p>For batch data collection and export (dataset creation):</p>
+                <pre><code>from src.api import TrainingDataAPI
+
+api = TrainingDataAPI(buffer_size=10000)
+api.select_data(channel=True, filter_outputs=True, ground_truth=True)
+api.enable_collection()
+# ... run simulation ...
+api.export_to_file("training_data.npz")</code></pre>
+
+            </section>
+
+        </div>
+    </main>
+
+    <script src="script.js"></script>
+</body>
+</html>

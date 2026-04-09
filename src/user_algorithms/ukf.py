@@ -31,7 +31,7 @@ class UkfAlgorithm(BaseLocalizationAlgorithm):
 
     @property
     def name(self) -> str:
-        return "UKF"
+        return "Unscented Kalman Filter"
 
     def initialize(self) -> None:
         pass

@@ -93,6 +93,8 @@ class Tag(UWBDevice):
         # Add timestamps for DS-TWR
         self.final_rx_timestamp = 0.0
         self.ds_response_tx_timestamp = 0.0
+
+        self.imu_data_on = True
     
     def move(self, dx: float, dy: float):
         self.position.x += dx

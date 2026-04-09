@@ -1,4 +1,5 @@
 import numpy as np
+import navpy
 
 class IMUSimulator:
     """
@@ -15,17 +16,26 @@ class IMUSimulator:
         self.sample_rate = sample_rate
         self.dt = 1.0 / sample_rate
         
-        # Sensor noise parameters (consumer-grade IMU)
+        # --- Tunable Simulation Variables ---
+        # Modify these to change the noise and bias characteristics.
+        
+        # White Noise (Standard Deviation)
         self.acc_noise_std = 0.02        # Accelerometer noise (m/s²)
         self.gyro_noise_std = 0.001      # Gyroscope noise (rad/s)
         
-        # Bias parameters
+        # Constant / Initial Bias
+        # acc_bias: constant offset in accelerometer readings
+        # gyro_bias: constant offset in gyroscope readings
         self.acc_bias = np.random.normal(0, 0.05, 3)   # Accelerometer bias (m/s²)
         self.gyro_bias = np.random.normal(0, 0.01, 3)  # Gyroscope bias (rad/s)
+        
+        # Bias Instability (Random Walk)
+        # Higher values cause the bias to drift faster over time.
         self.bias_instability = 1e-5     # Bias random walk coefficient
         
-        # Gravity constant
-        self.g = 9.81
+        # Gravity
+        self.g = 9.81                    # m/s²
+        # ------------------------------------
         
         # Previous state for differentiation
         self.prev_position = None
@@ -74,14 +84,8 @@ class IMUSimulator:
         delta_yaw = np.arctan2(np.sin(delta_yaw), np.cos(delta_yaw))
         yaw_rate = delta_yaw / dt
         
-        # Transform acceleration to body frame
-        cos_yaw = np.cos(orientation)
-        sin_yaw = np.sin(orientation)
-        R_world_to_body = np.array([
-            [cos_yaw, sin_yaw, 0],
-            [-sin_yaw, cos_yaw, 0],
-            [0, 0, 1]
-        ])
+        # Transform acceleration to body frame using navpy
+        R_world_to_body = navpy.angle2dcm(orientation, 0, 0, input_unit='rad')
         
         # Accelerometer measures specific force (linear acceleration + gravity)
         gravity_world = np.array([0, 0, -self.g])

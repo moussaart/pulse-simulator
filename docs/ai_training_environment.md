@@ -31,7 +31,10 @@ external RL agents, plus a programmatic API for configuration and data retrieval
                                             │  Baselines)     │
                                             └─────────────────┘
 ```
-
+<p align="center">
+  <img src="assets/ai_workflow.png" alt="AI Training Environment" />
+  &nbsp;&nbsp;&nbsp;
+</p>
 ## API Reference
 
 ### `AITrainingAPI` — Configuration & Data Access

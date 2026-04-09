@@ -24,8 +24,9 @@ class PulseRLEnv(gym.Env):
         # Action space: Binary array [1, 0, 1, 1] means use A1, A3, A4. Drop A2.
         self.action_space = spaces.MultiBinary(self.max_anchors)
         
-        # Observation space: The raw distance measurements to the anchors
-        self.observation_space = spaces.Box(low=0.0, high=100.0, shape=(self.max_anchors,), dtype=np.float32)
+        # Observation space: Anchor positions (max_anchors * 2) + localization_error (1)
+        # Note: We remove measurements as per request
+        self.observation_space = spaces.Box(low=-100.0, high=100.0, shape=(self.max_anchors * 2 + 1,), dtype=np.float32)
         
         self.connect()
 
@@ -81,32 +82,30 @@ class PulseRLEnv(gym.Env):
         return obs, reward, terminated, truncated, {}
 
     def _extract_obs(self, state_dict):
-        measurements = state_dict.get("measurements", [])
-        # Pad with 0s if less than max_anchors
-        obs = np.zeros(self.max_anchors, dtype=np.float32)
-        for i, m in enumerate(measurements[:self.max_anchors]):
-            obs[i] = float(m)
-        return obs
+        # State now consists of anchor positions and current localization error
+        anchor_poses = state_dict.get("anchor_positions", [])
+        curr_error = state_dict.get("localization_error", 0.0)
+        
+        # Flatten anchor positions: [x1, y1, x2, y2, ...]
+        obs_parts = []
+        for i in range(self.max_anchors):
+            if i < len(anchor_poses):
+                obs_parts.extend([float(anchor_poses[i][0]), float(anchor_poses[i][1])])
+            else:
+                obs_parts.extend([0.0, 0.0]) # Padding
+        
+        obs_parts.append(float(curr_error))
+        return np.array(obs_parts, dtype=np.float32)
 
     def _compute_reward(self, state_dict, action):
-        # A simple reward function: 
-        # Reward = 1 if using an anchor that has LOS, -1 for using NLOS
-        # The AI will learn to drop NLOS anchors
-        reward = 0.0
-        is_los_list = state_dict.get("is_los", [])
+        # Reward = +1 if error decreases, -1 otherwise
+        curr_error = state_dict.get("localization_error", 0.0)
+        prev_error = state_dict.get("prev_localization_error", 0.0)
         
-        for i in range(min(len(action), len(is_los_list))):
-            use_anchor = action[i]
-            has_los = is_los_list[i]
-            
-            if use_anchor == 1:
-                # Agent decided to use this anchor
-                if has_los:
-                    reward += 1.0  # Good!
-                else:
-                    reward -= 2.0  # Bad! Using an NLOS anchor hurts accuracy.
-                    
-        return reward
+        if curr_error < prev_error:
+            return 1.0
+        else:
+            return -1.0
 
     def _receive_state(self):
         buffer = ""

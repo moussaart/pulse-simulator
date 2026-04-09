@@ -20,7 +20,9 @@ class AlgorithmInput:
     R: Optional[np.ndarray] = None
     initialized: bool = False
     imu_data_on: bool = False
-    control_input: Optional[np.ndarray] = None  # [ax, ay]
+    accel: Optional[np.ndarray] = None          # [ax, ay, az]
+    gyro: Optional[np.ndarray] = None           # [gx, gy, gz]
+    control_input: Optional[np.ndarray] = None  # Deprecated: [ax, ay]
     is_los: Optional[List[bool]] = None         # LOS/NLOS status for each anchor
     
     # Additional optional parameters that might be passed

@@ -40,10 +40,46 @@ class AukfAlgorithm(BaseLocalizationAlgorithm):
 
     @property
     def name(self) -> str:
-        return "AUKF"
+        return "Adaptive Unscented Kalman Filter"
 
     def initialize(self) -> None:
         pass
+
+    # ------------------------------------------------------------------ #
+    #  Variable Binding: expose tunable parameters                         #
+    # ------------------------------------------------------------------ #
+
+    @classmethod
+    def exposed_variables(cls) -> list:
+        from src.core.localization.variable_binding import VariableDescriptor
+        base = super().exposed_variables()
+        base.extend([
+            VariableDescriptor(
+                "PROCESS_NOISE_POS", "Process Noise — Position", "float", "parameter",
+                default_value=cls.PROCESS_NOISE_POS, min_value=1e-4, max_value=10.0,
+                description="Sigma for position process noise (σ_p). Higher = trust motion model less."),
+            VariableDescriptor(
+                "PROCESS_NOISE_VEL", "Process Noise — Velocity", "float", "parameter",
+                default_value=cls.PROCESS_NOISE_VEL, min_value=1e-4, max_value=20.0,
+                description="Sigma for velocity process noise (σ_v)."),
+            VariableDescriptor(
+                "MEASUREMENT_NOISE", "Measurement Noise Sigma", "float", "parameter",
+                default_value=cls.MEASUREMENT_NOISE, min_value=1e-4, max_value=5.0,
+                description="STD of UWB ranging noise used to initialise R (in metres)."),
+            VariableDescriptor(
+                "ALPHA", "UKF Alpha (σ-point spread)", "float", "parameter",
+                default_value=cls.ALPHA, min_value=1e-6, max_value=1.0,
+                description="Controls the spread of sigma points around the mean. Typical: 1e-3."),
+            VariableDescriptor(
+                "BETA", "UKF Beta (distribution prior)", "float", "parameter",
+                default_value=cls.BETA, min_value=0.0, max_value=10.0,
+                description="Prior knowledge of distribution (2 is optimal for Gaussian)."),
+            VariableDescriptor(
+                "KAPPA", "UKF Kappa (secondary scaling)", "float", "parameter",
+                default_value=cls.KAPPA, min_value=-10.0, max_value=10.0,
+                description="Secondary scaling parameter (0 or 3-n recommended)."),
+        ])
+        return base
 
     # ------------------------------------------------------------------ #
     #  Main update                                                         #

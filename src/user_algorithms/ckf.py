@@ -21,7 +21,7 @@ class CkfAlgorithm(BaseLocalizationAlgorithm):
 
     @property
     def name(self) -> str:
-        return "CKF"
+        return "Cubature Kalman Filter"
 
     # ------------------------------------------------------------------
     def initialize(self) -> None:

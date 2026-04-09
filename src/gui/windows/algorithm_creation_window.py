@@ -272,8 +272,9 @@ class AlgorithmCreationWindow(QDialog):
         if use_imu:
             code.extend([
                 "        # IMU Data (if available)",
-                "        if input_data.imu_data_on and input_data.control_input is not None:",
-                "            accel = input_data.control_input # [ax, ay]",
+                "        if input_data.imu_data_on and input_data.accel is not None:",
+                "            accel = input_data.accel  # [ax, ay, az]",
+                "            gyro = input_data.gyro    # [gx, gy, gz]",
                 ""
             ])
             

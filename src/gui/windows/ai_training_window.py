@@ -9,6 +9,8 @@ import pyqtgraph as pg
 
 from src.api.ai_gym_server import AIGymServer
 from src.core.localization.Localization_alghorthime import LocalizationAlgorthimes
+from src.core.localization.Alghortimes_doc import Alghortimes_doc
+from src.core.localization.base_algorithm import AlgorithmInput
 from src.core.motion import MotionController
 from src.core.uwb.uwb_devices import Tag, Position
 
@@ -32,6 +34,22 @@ class AITrainingWindow(QMainWindow):
         self.trajectory_manager = self.main_app.trajectory_manager
         self.channel_model = self.main_app.channel_conditions
         
+        # Simulation parameters synchronized from main app
+        self.dt = getattr(self.main_app, 'dt', 0.005)
+        self.movement_pattern = getattr(self.main_app, 'movement_pattern', "Circular")
+        self.movement_speed = getattr(self.main_app, 'movement_speed', 1.0)
+        self.algorithm = getattr(self.main_app, 'algorithm', "Trilateration")
+        self.point = getattr(self.main_app, 'point', (0.0, 0.0))
+        
+        # NLOS Aware / Algorithm detailed parameters
+        self.los_aware_alpha = getattr(self.main_app, 'los_aware_alpha', 0.5)
+        self.los_aware_beta = getattr(self.main_app, 'los_aware_beta', 0.5)
+        self.los_aware_nlos_factor = getattr(self.main_app, 'los_aware_nlos_factor', 100)
+        
+        # Algorithm dispatch mapping (same as SimulationManager)
+        self.algorithm_methods = Alghortimes_doc().get_algorithm_methods()
+        self.algorithm_instances = {} # Cache for class-based algorithms
+        
         self.server = AIGymServer(port=5555)
         self.server.start()
         
@@ -52,9 +70,15 @@ class AITrainingWindow(QMainWindow):
         
         # Physics state
         self.state_sent_for_step = False
-        self.ekf_states = [None] * self.num_agents
-        self.ekf_Ps = [None] * self.num_agents
-        self.ekf_initializeds = [False] * self.num_agents
+        self.ekf_states = [np.array([0.0, 0.0, 0.0, 0.0]) for _ in range(self.num_agents)]
+        self.ekf_Ps = [np.eye(4) * 5.0 for _ in range(self.num_agents)]
+        self.ekf_initializeds = [False for _ in range(self.num_agents)]
+        self.ekf_Qs = [getattr(self.main_app, 'aekf_Q', None) for _ in range(self.num_agents)]
+        self.ekf_Rs = [getattr(self.main_app, 'aekf_R', None) for _ in range(self.num_agents)]
+        
+        # Track errors for reward calculation in RL
+        self.prev_errors = [0.0 for _ in range(self.num_agents)]
+        self.curr_errors = [0.0 for _ in range(self.num_agents)]
         
         # Timer for stepping the environment
         self.timer = QTimer(self)
@@ -73,25 +97,25 @@ class AITrainingWindow(QMainWindow):
     def _generate_trajectory(self):
         """Generates the static trajectory path for the AI environment to step over."""
         try:
-            if self.main_app.movement_pattern.startswith("Custom:"):
-                trajectory_name = self.main_app.movement_pattern.split(":", 1)[1]
+            if self.movement_pattern.startswith("Custom:"):
+                trajectory_name = self.movement_pattern.split(":", 1)[1]
                 t_points = MotionController.load_custom_trajectory(trajectory_name)
                 if t_points:
                     self.trajectory_points = [[p[0], p[1]] for p in t_points]
             else:
                 side = 8
-                period = (4 * side) / self.main_app.movement_speed if self.main_app.movement_speed > 0 else 10
-                t_points = np.arange(0, period, self.main_app.dt) if hasattr(self.main_app, 'dt') and self.main_app.dt > 0 else np.linspace(0, period, 500)
+                period = (4 * side) / self.movement_speed if self.movement_speed > 0 else 10
+                t_points = np.arange(0, period, self.dt) if self.dt > 0 else np.linspace(0, period, 500)
                 temp_tag = Tag(Position(0, 0))
                 
                 for t in t_points:
                     MotionController.update_tag_position(
                         tag=temp_tag,
-                        movement_pattern=self.main_app.movement_pattern,
-                        movement_speed=self.main_app.movement_speed,
+                        movement_pattern=self.movement_pattern,
+                        movement_speed=self.movement_speed,
                         t=t,
-                        frequence=1/self.main_app.dt if hasattr(self.main_app, 'dt') and self.main_app.dt > 0 else 200,
-                        point=self.main_app.point
+                        frequence=1/self.dt if self.dt > 0 else 200,
+                        point=self.point
                     )
                     self.trajectory_points.append([temp_tag.position.x, temp_tag.position.y])
         except Exception as e:
@@ -146,9 +170,21 @@ class AITrainingWindow(QMainWindow):
         metrics_layout.addWidget(self.loss_plot)
         metrics_layout.addWidget(self.entropy_plot)
         
+        # 2.5 Anchor Selection Grid
+        self.selection_grid_plot = create_themed_plot(title="Anchor Selection Grid", y_label="Agent ID", x_label="Anchor ID")
+        self.selection_grid_plot.setYRange(-0.5, max(1, self.num_agents) - 0.5)
+        self.selection_grid_plot.setXRange(-0.5, 4.5) # Show fixed 5 columns as requested
+        self.selection_grid_plot.showGrid(x=True, y=True, alpha=0.3)
+        self.selection_grid_plot.getAxis('left').setTicks([[(i, str(i)) for i in range(self.num_agents)]])
+        self.selection_grid_plot.getAxis('bottom').setTicks([[(i, str(i)) for i in range(5)]])
+        
+        self.selection_grid_scatter = pg.ScatterPlotItem(size=15, pen=pg.mkPen(None))
+        self.selection_grid_plot.addItem(self.selection_grid_scatter)
+        metrics_layout.addWidget(self.selection_grid_plot)
+        
         self.splitter.addWidget(self.metrics_widget)
-        self.metrics_widget.setVisible(False)
-        self.splitter.setSizes([700, 300]) # Default ratio
+        self.metrics_widget.setVisible(True)
+        self.splitter.setSizes([600, 400]) # Better ratio for grid
         
         layout.addWidget(self.splitter, stretch=1)
         
@@ -164,13 +200,13 @@ class AITrainingWindow(QMainWindow):
         self.trajectory_line = pg.PlotDataItem(pen=pg.mkPen('k', width=2, style=Qt.DashLine))
         self.true_pos_scatter = pg.ScatterPlotItem(size=10, pen=pg.mkPen(None), brush=pg.mkBrush(255, 0, 0, 200))
         self.est_pos_scatter = pg.ScatterPlotItem(size=12, pen=pg.mkPen(None)) # Brushes set per-point
-        self.chosen_anchors_scatter = pg.ScatterPlotItem(size=25, pen=pg.mkPen('g', width=3), brush=pg.mkBrush(0, 255, 0, 50))
+        self.chosen_anchors_scatter = pg.ScatterPlotItem(size=8, pen=pg.mkPen(None)) # Small dots for chosen anchors
         
         self.plot_widget.addItem(self.trajectory_line)
         self.plot_widget.addItem(self.anchor_scatter)
         self.plot_widget.addItem(self.true_pos_scatter)
         self.plot_widget.addItem(self.est_pos_scatter)
-        self.plot_widget.addItem(self.chosen_anchors_scatter) # Large hollow circles for chosen anchors
+        self.plot_widget.addItem(self.chosen_anchors_scatter) # Small colored dots for chosen anchors
         
         # Removed connection lines to anchors based on user feedback to prevent visual cascade
             
@@ -180,7 +216,8 @@ class AITrainingWindow(QMainWindow):
         self.btn_step = QPushButton("⏭ Step")
         self.btn_reset = QPushButton("🔄 Reset")
         
-        self.cb_show_metrics = QCheckBox("Show Live Metrics")
+        self.cb_show_metrics = QCheckBox("Show Live Metrics & Selection")
+        self.cb_show_metrics.setChecked(True)
         self.cb_show_metrics.toggled.connect(self.metrics_widget.setVisible)
         
         controls_layout.addWidget(self.btn_play)
@@ -357,10 +394,17 @@ class AITrainingWindow(QMainWindow):
                 state_dict = {
                     "agent_id": a_idx,
                     "step": self.current_step,
-                    "timestamp": self.current_step * (self.main_app.dt if hasattr(self.main_app, 'dt') else 0.1),
+                    "timestamp": self.current_step * self.dt,
                     "tag_position_gt": [float(true_pos[0]), float(true_pos[1]), 0.0],
-                    "distances_measured": [float(measurements[a.id]) for a in self.anchors],
-                    "los_conditions": los_conditions
+                    "anchor_positions": [[float(a.position.x), float(a.position.y)] for a in self.anchors],
+                    "localization_error": float(self.curr_errors[a_idx]),
+                    "prev_localization_error": float(self.prev_errors[a_idx]),
+                    "is_los": los_conditions,
+                    # Synchronization parameters
+                    "dt": self.dt,
+                    "movement_speed": self.movement_speed,
+                    "movement_pattern": self.movement_pattern,
+                    "algorithm": self.algorithm
                 }
                 all_states.append(state_dict)
             
@@ -443,36 +487,147 @@ class AITrainingWindow(QMainWindow):
                         )
                     measurements_list.append(dist)
                     chosen_anchors.append(anchor)
-                    all_chosen_spots.append({'pos': (anchor.position.x, anchor.position.y), 'data': 1})
+                    
+                    # Selection is now shown in the grid on the right, not on the map
+                    all_chosen_spots.append({
+                        'pos': (idx, a_idx), # x = Anchor ID, y = Agent ID
+                        'brush': pg.mkBrush(self.agent_colors[a_idx]),
+                        'data': a_idx
+                    })
             
-            # Compute EKF for this agent
+            # Compute location for this agent using current algorithm
             temp_tag = Tag(Position(true_pos[0], true_pos[1]))
             try:
-                est_pos, state, cov, initialized = LocalizationAlgorthimes.extended_kalman_filter(
-                    measurements=measurements_list,
-                    tag=temp_tag,
-                    anchors=chosen_anchors,
-                    ekf_state=self.ekf_states[a_idx],
-                    ekf_P=self.ekf_Ps[a_idx],
-                    ekf_initialized=self.ekf_initializeds[a_idx],
-                    dt=self.main_app.dt if hasattr(self.main_app, 'dt') else 0.1
-                )
-                self.ekf_states[a_idx] = state
-                self.ekf_Ps[a_idx] = cov
-                self.ekf_initializeds[a_idx] = initialized
+                method = self.algorithm_methods.get(self.algorithm)
+                
+                # Use current IMU if available (fallback to 0s for training if not used)
+                u = np.array([0.0, 0.0]) # Acceleration input [ax, ay]
+                
+                import inspect
+                from src.core.localization.base_algorithm import BaseLocalizationAlgorithm
+                
+                if method and inspect.isclass(method) and issubclass(method, BaseLocalizationAlgorithm):
+                    algo_name = self.algorithm
+                    if (algo_name, a_idx) not in self.algorithm_instances:
+                        self.algorithm_instances[(algo_name, a_idx)] = method()
+                        self.algorithm_instances[(algo_name, a_idx)].initialize()
+                    
+                    algo_instance = self.algorithm_instances[(algo_name, a_idx)]
+                    
+                    # Ensure Q and R are initialized and have correct dimensions (avoids aekf.py crashes)
+                    # This logic handles changes in the number of anchors smoothly
+                    num_anchors = len(chosen_anchors)
+                    
+                    # 1. Initialize Q if missing (Process Noise)
+                    if self.ekf_Qs[a_idx] is None:
+                        # Standard 4x4 Q for [x, y, vx, vy]
+                        q_noise = 0.1
+                        self.ekf_Qs[a_idx] = np.eye(4) * q_noise
+                        
+                    # 2. Initialize or Resize R if missing or wrong dimension (Measurement Noise)
+                    if self.ekf_Rs[a_idx] is None or self.ekf_Rs[a_idx].shape[0] != num_anchors:
+                        r_noise = 0.15
+                        self.ekf_Rs[a_idx] = np.eye(num_anchors) * (r_noise**2)
+                    
+                    input_data = AlgorithmInput(
+                        measurements=measurements_list,
+                        anchors=chosen_anchors,
+                        tag=temp_tag,
+                        dt=self.dt,
+                        state=self.ekf_states[a_idx],
+                        covariance=self.ekf_Ps[a_idx],
+                        initialized=self.ekf_initializeds[a_idx],
+                        Q=self.ekf_Qs[a_idx],
+                        R=self.ekf_Rs[a_idx],
+                        imu_data_on=False,
+                        accel=None, # Not used in training currently
+                        gyro=None,
+                        control_input=u,
+                        is_los=[0 if self.channel_model.check_los_to_anchor(a.position, Position(true_pos[0], true_pos[1])) else 1 for a in chosen_anchors],
+                        params={}
+                    )
+                    
+                    output = algo_instance.update(input_data)
+                    est_pos = output.position
+                    self.ekf_states[a_idx] = output.state
+                    self.ekf_Ps[a_idx] = output.covariance
+                    self.ekf_initializeds[a_idx] = output.initialized
+                    self.ekf_Qs[a_idx] = output.Q
+                    self.ekf_Rs[a_idx] = output.R
+                elif method:
+                    # Function-based algorithms (legacy)
+                    # Mapping logic for NLOS-Aware etc.
+                    is_los_bits = [0 if self.channel_model.check_los_to_anchor(a.position, Position(true_pos[0], true_pos[1])) else 1 for a in chosen_anchors]
+                    
+                    if "Improved Adaptive EKF" in self.algorithm:
+                        # Special handling if needed, or fallback to general call
+                        result = method(
+                            measurements=measurements_list,
+                            tag=temp_tag,
+                            anchors=chosen_anchors,
+                            aekf_state=self.ekf_states[a_idx],
+                            aekf_P=self.ekf_Ps[a_idx],
+                            aekf_initialized=self.ekf_initializeds[a_idx],
+                            dt=self.dt,
+                            imu_data_on=False,
+                            u=u
+                            # other params...
+                        )
+                    elif "NLOS-Aware" in self.algorithm:
+                        result = method(
+                            measurements=measurements_list,
+                            tag=temp_tag,
+                            anchors=chosen_anchors,
+                            aekf_state=self.ekf_states[a_idx],
+                            aekf_P=self.ekf_Ps[a_idx],
+                            aekf_initialized=self.ekf_initializeds[a_idx],
+                            is_los=is_los_bits,
+                            alpha=self.los_aware_alpha,
+                            beta=self.los_aware_beta,
+                            nlos_factor=self.los_aware_nlos_factor,
+                            dt=self.dt,
+                            imu_data_on=False,
+                            u=u
+                        )
+                    else:
+                        # Generic trilateration etc.
+                        result = method(measurements_list, chosen_anchors)
+                        
+                    # Unpack result
+                    if isinstance(result, tuple) and len(result) >= 4:
+                        est_pos, self.ekf_states[a_idx], self.ekf_Ps[a_idx], self.ekf_initializeds[a_idx] = result[:4]
+                        # For legacy variants that might return Q, R in a longer tuple
+                        if len(result) >= 6:
+                            self.ekf_Qs[a_idx] = result[4]
+                            self.ekf_Rs[a_idx] = result[5]
+                    else:
+                        est_pos = result
+                else:
+                    # Fallback to trilateration
+                    est_pos = LocalizationAlgorthimes.trilateration(measurements_list, chosen_anchors)
+                
                 all_est_spots.append({
                     'pos': (est_pos[0], est_pos[1]), 
                     'brush': pg.mkBrush(self.agent_colors[a_idx])
                 })
+                
+                # Update errors for state/reward
+                error = np.linalg.norm([est_pos[0] - true_pos[0], est_pos[1] - true_pos[1]])
+                self.prev_errors[a_idx] = self.curr_errors[a_idx]
+                self.curr_errors[a_idx] = error
+
             except Exception as e:
                 import traceback
                 err = traceback.format_exc()
                 print(f"Algorithm error on chosen anchors for agent {a_idx}: {e}\n{err}")
 
-        # Highlight chosen anchors
-        self.chosen_anchors_scatter.setData(all_chosen_spots)
+        # Update Plots
+        self.selection_grid_scatter.setData(all_chosen_spots)
         self.true_pos_scatter.setData(all_true_spots)
         self.est_pos_scatter.setData(all_est_spots)
+        
+        # Clear main map selection scatter (we moved it to the grid)
+        self.chosen_anchors_scatter.setData([])
             
         # 4. ADVANCE STEP
         self.current_step += 1

@@ -7,9 +7,6 @@ class Alghortimes_doc():
     def __init__(self):
         self.algorithm_methods = {
             "Trilateration": LocalizationAlgorthimes.trilateration,
-            "Extended Kalman Filter": LocalizationAlgorthimes.extended_kalman_filter,
-            "Unscented Kalman Filter": LocalizationAlgorthimes.unscented_kalman_filter,
-            "Adaptive Extended Kalman Filter": LocalizationAlgorthimes.adaptive_extended_kalman_filter,
             "NLOS-Aware AEKF": LocalizationAlgorthimes.Nlos_aware_aekf,
             "IMU Only": LocalizationAlgorthimes.imu_only_filter,
         }
