@@ -84,7 +84,7 @@ class Tag(UWBDevice):
         # IMU simulator and data storage
         self.imu_simulator = IMUSimulator(sample_rate=100)  # 100 Hz sampling rate
         self.imu_data = IMUData()
-        self.last_update_time = 0
+        self.last_update_time = None
         
         # TWR timestamps
         self.poll_tx_timestamp = 0.0
@@ -108,18 +108,32 @@ class Tag(UWBDevice):
         Args:
             t: Current simulation time
         """
-        # Calculate time step
-        dt = max(t - self.last_update_time, 0.001) if self.last_update_time > 0 else 0.001
-        self.last_update_time = t
-        
         # Generate IMU measurements from current tag kinematics
         try:
+            if t is None or not np.isfinite(t):
+                raise ValueError(f"Invalid IMU timestamp: {t}")
+
+            if self.last_update_time is None:
+                dt = self.imu_simulator.dt
+            else:
+                dt = t - self.last_update_time
+                if not np.isfinite(dt) or dt <= 0:
+                    raise ValueError(f"Invalid IMU delta time: {dt}")
+
+            velocity = np.array([self.velocity.x, self.velocity.y, self.velocity.z], dtype=float)
+            acceleration = np.array([self.acceleration.x, self.acceleration.y, self.acceleration.z], dtype=float)
+            angular_velocity = np.array([0.0, 0.0, self.angular_velocity], dtype=float)
+
             acc_measured, gyro_measured = self.imu_simulator.generate_imu_data(
                 self.position, 
                 self.orientation, 
-                dt
+                dt,
+                velocity=velocity,
+                acceleration=acceleration,
+                angular_velocity=angular_velocity,
             )
-            
+            self.last_update_time = t
+             
             # Store the measurement
             self.imu_data.add_measurement(
                 t, 

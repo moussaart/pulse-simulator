@@ -6,6 +6,7 @@ import json
 from PyQt5.QtWidgets import QFileDialog
 from src.core.uwb.uwb_devices import Anchor, Position
 from src.core.uwb.channel_model import NLOSZone, PolygonNLOSZone, PathLossParams, MovingNLOSZone
+from src.core.localization import Alghortimes_doc
 
 
 class FileManager:
@@ -74,6 +75,13 @@ class FileManager:
             'anchors': self.serialize_anchors(),
             'nlos_zones': self.serialize_nlos_zones(),
             'algorithm': algorithm,
+            'algorithm_config': {
+                'name': algorithm,
+                'uses_imu': self.algorithm_uses_imu(algorithm),
+            },
+            'tag_config': {
+                'imu_data_on': bool(getattr(getattr(self.parent, 'tag', None), 'imu_data_on', False)),
+            },
             'movement_pattern': movement_pattern,
             'movement_speed': movement_speed,
             'timestep_ms': timestep_ms,
@@ -133,8 +141,19 @@ class FileManager:
                 
                 # Load NLOS zones
                 self.load_nlos_zones(config['nlos_zones'])
-                
+
+                # Restore tag sensor flags before selecting/initializing algorithms.
+                tag_config = config.get('tag_config', {})
+                if hasattr(self.parent, 'tag') and 'imu_data_on' in tag_config:
+                    self.parent.tag.imu_data_on = bool(tag_config['imu_data_on'])
+                 
                 # Load other settings (null-safe widget access)
+                algorithm_config = config.get('algorithm_config', {})
+                if 'name' in algorithm_config and 'uses_imu' in algorithm_config:
+                    overrides = getattr(self.parent, 'algorithm_imu_overrides', {})
+                    overrides[algorithm_config['name']] = bool(algorithm_config['uses_imu'])
+                    self.parent.algorithm_imu_overrides = overrides
+
                 try:
                     if self.parent.algo_combo:
                         self.parent.algo_combo.setCurrentText(config['algorithm'])
@@ -213,6 +232,22 @@ class FileManager:
                     
             except Exception as e:
                 self.parent.show_error_message("Error", f"Failed to load map: {str(e)}")
+
+    @staticmethod
+    def algorithm_uses_imu(algorithm_name: str) -> bool:
+        """Return persisted IMU declaration for an algorithm name."""
+        try:
+            method = Alghortimes_doc().get_algorithm_methods().get(algorithm_name)
+            if method is None:
+                return False
+            if bool(getattr(method, 'uses_imu', False)):
+                return True
+            sensors = getattr(method, 'required_sensors', ()) or ()
+            if isinstance(sensors, str):
+                sensors = (sensors,)
+            return any(str(sensor).strip().lower() == 'imu' for sensor in sensors)
+        except Exception:
+            return False
     
     def serialize_anchors(self):
         """Serialize anchors to list of dictionaries"""

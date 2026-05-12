@@ -221,6 +221,7 @@ class AlgorithmCreationWindow(QDialog):
         use_imu = self.use_imu_cb.isChecked()
         use_state = self.use_state_cb.isChecked()
         use_nlos = self.use_nlos_cb.isChecked()
+        required_sensors = '("imu",)' if use_imu else '()'
         
         code = [
             "import numpy as np",
@@ -231,6 +232,9 @@ class AlgorithmCreationWindow(QDialog):
             f"    Implementation of {name}",
             "    \"\"\"",
             "    ",
+            f"    uses_imu = {use_imu}",
+            f"    required_sensors = {required_sensors}",
+            "",
             "    @property",
             "    def name(self) -> str:",
             f"        return \"{name}\"",

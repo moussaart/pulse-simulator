@@ -47,6 +47,12 @@ class BaseLocalizationAlgorithm(ABC):
     """
     Abstract base class that all custom localization algorithms must inherit from.
     """
+
+    # Custom algorithms can opt into live IMU inputs by setting either
+    # uses_imu = True or required_sensors = ("imu",). The simulator uses this
+    # declaration on every load/reload; IMU is not forced on for all algorithms.
+    uses_imu: bool = False
+    required_sensors: tuple = ()
     
     @property
     @abstractmethod

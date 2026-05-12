@@ -333,6 +333,20 @@ class SimulationManager:
                 self.parent.sync_energy_parameters()
             elif hasattr(self.parent, 'update_energy_displays'):
                 self.parent.update_energy_displays()
+
+    @staticmethod
+    def _method_uses_imu(method) -> bool:
+        """Return True only for algorithms that explicitly require IMU input."""
+        if method is None:
+            return False
+        if inspect.isclass(method) and issubclass(method, BaseLocalizationAlgorithm):
+            if bool(getattr(method, 'uses_imu', False)):
+                return True
+            sensors = getattr(method, 'required_sensors', ()) or ()
+            if isinstance(sensors, str):
+                sensors = (sensors,)
+            return any(str(sensor).strip().lower() == 'imu' for sensor in sensors)
+        return False
     
     def _measure_single_anchor(self, anchor):
         """
@@ -518,10 +532,17 @@ class SimulationManager:
         algorithm_methods = self._algorithm_methods
         method = algorithm_methods.get(self.parent.algorithm)
         
-        # Extract IMU data if available
+        algorithm_uses_imu = self._method_uses_imu(method)
+        imu_overrides = getattr(self.parent, 'algorithm_imu_overrides', {}) or {}
+        if self.parent.algorithm in imu_overrides:
+            algorithm_uses_imu = bool(imu_overrides[self.parent.algorithm])
+        tag_imu_enabled = bool(getattr(self.parent.tag, 'imu_data_on', False))
+        provide_imu = algorithm_uses_imu and tag_imu_enabled
+
+        # Extract IMU data only when this algorithm declares an IMU dependency.
         accel = None
         gyro = None
-        if hasattr(self.parent.tag, 'imu_data') and len(self.parent.tag.imu_data) > 0:
+        if provide_imu and hasattr(self.parent.tag, 'imu_data') and len(self.parent.tag.imu_data) > 0:
             accel = np.array([
                 self.parent.tag.imu_data.acc_x[-1],
                 self.parent.tag.imu_data.acc_y[-1],
@@ -559,7 +580,7 @@ class SimulationManager:
                     Q=getattr(self.parent, 'aekf_Q', None),
                     R=getattr(self.parent, 'aekf_R', None),
                     initialized=self.parent.kf_initialized if hasattr(self.parent, 'kf_initialized') else False,
-                    imu_data_on=self.parent.tag.imu_data_on if hasattr(self.parent.tag, 'imu_data_on') else False,
+                    imu_data_on=provide_imu,
                     accel=accel,
                     gyro=gyro,
                     control_input=u,

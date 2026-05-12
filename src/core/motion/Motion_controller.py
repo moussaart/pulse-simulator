@@ -16,6 +16,10 @@ class MotionController:
         prev_y = tag.position.y
         prev_vx = tag.velocity.x
         prev_vy = tag.velocity.y
+        prev_orientation = tag.orientation
+        update_dt = dt if dt is not None and np.isfinite(dt) and dt > 0 else 0.05
+        first_motion_sample = getattr(tag, 'last_update_time', None) is None
+        kinematics_known = False
         
         # Initialize new_x and new_y with current position
         new_x = tag.position.x
@@ -111,12 +115,30 @@ class MotionController:
                 frequency = 0.5 * movement_speed
                 new_x = radius * np.cos(frequency * t)
                 new_y = radius * np.sin(frequency * t)
+                tag.velocity.x = -radius * frequency * np.sin(frequency * t)
+                tag.velocity.y = radius * frequency * np.cos(frequency * t)
+                tag.acceleration.x = -radius * frequency**2 * np.cos(frequency * t)
+                tag.acceleration.y = -radius * frequency**2 * np.sin(frequency * t)
+                tag.orientation = np.arctan2(tag.velocity.y, tag.velocity.x)
+                tag.angular_velocity = frequency
+                kinematics_known = True
             
             elif movement_pattern == "Figure 8":
                 radius = 5
                 frequency = 0.5 * movement_speed
                 new_x = radius * np.cos(frequency * t)
                 new_y = radius/2 * np.sin(2 * frequency * t)
+                tag.velocity.x = -radius * frequency * np.sin(frequency * t)
+                tag.velocity.y = radius * frequency * np.cos(2 * frequency * t)
+                tag.acceleration.x = -radius * frequency**2 * np.cos(frequency * t)
+                tag.acceleration.y = -2 * radius * frequency**2 * np.sin(2 * frequency * t)
+                speed_sq = tag.velocity.x**2 + tag.velocity.y**2
+                tag.orientation = np.arctan2(tag.velocity.y, tag.velocity.x)
+                tag.angular_velocity = (
+                    (tag.velocity.x * tag.acceleration.y - tag.velocity.y * tag.acceleration.x) / speed_sq
+                    if speed_sq > 1e-12 else 0.0
+                )
+                kinematics_known = True
             
             elif movement_pattern == "Square":
                 side = 8
@@ -173,34 +195,39 @@ class MotionController:
                 # Zero velocity for fixed point
                 tag.velocity.x = 0
                 tag.velocity.y = 0
+                tag.acceleration.x = 0
+                tag.acceleration.y = 0
+                tag.angular_velocity = 0
+                kinematics_known = True
         # Update tag position
         tag.position.x = new_x
         tag.position.y = new_y
         
-        # Calculate dt (use fixed dt for stability)
-        dt = 0.05  # 50ms update rate
-        
-        if not movement_pattern.startswith("Custom:"):
+        if not movement_pattern.startswith("Custom:") and not kinematics_known:
             # Calculate velocities for non-custom patterns
-            tag.velocity.x = (new_x - prev_x) / dt
-            tag.velocity.y = (new_y - prev_y) / dt
+            tag.velocity.x = (new_x - prev_x) / update_dt
+            tag.velocity.y = (new_y - prev_y) / update_dt
         
         # Calculate accelerations
-        tag.acceleration.x = (tag.velocity.x - prev_vx) / dt
-        tag.acceleration.y = (tag.velocity.y - prev_vy) / dt
+        if not kinematics_known:
+            if first_motion_sample:
+                tag.acceleration.x = 0.0
+                tag.acceleration.y = 0.0
+            else:
+                tag.acceleration.x = (tag.velocity.x - prev_vx) / update_dt
+                tag.acceleration.y = (tag.velocity.y - prev_vy) / update_dt
         
         # Calculate orientation and angular velocity
-        tag.orientation = np.arctan2(tag.velocity.y, tag.velocity.x)
-        
-        # Calculate angular velocity (change in orientation)
-        speed = np.sqrt(tag.velocity.x**2 + tag.velocity.y**2)
-        if speed > 0.01:  # Only update angular velocity when moving
-            target_orientation = np.arctan2(tag.velocity.y, tag.velocity.x)
-            angle_diff = np.arctan2(np.sin(target_orientation - tag.orientation), 
-                                   np.cos(target_orientation - tag.orientation))
-            tag.angular_velocity = angle_diff / dt
-        else:
-            tag.angular_velocity = 0
+        if not kinematics_known:
+            speed = np.sqrt(tag.velocity.x**2 + tag.velocity.y**2)
+            if speed > 0.01:  # Only update orientation when moving
+                target_orientation = np.arctan2(tag.velocity.y, tag.velocity.x)
+                angle_diff = np.arctan2(np.sin(target_orientation - prev_orientation),
+                                        np.cos(target_orientation - prev_orientation))
+                tag.orientation = target_orientation
+                tag.angular_velocity = 0.0 if first_motion_sample else angle_diff / update_dt
+            else:
+                tag.angular_velocity = 0
         
         # Update IMU data
         tag.update_imu(t)

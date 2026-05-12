@@ -92,6 +92,7 @@ class LocalizationApp(QMainWindow):
         self.movement_pattern = "Circular"
         self.movement_speed = 1.0
         self.algorithm = "Trilateration"
+        self.algorithm_imu_overrides = {}
         
         # Initialize channel conditions
         self.channel_conditions = ChannelConditions()
@@ -1757,6 +1758,9 @@ class LocalizationApp(QMainWindow):
         Alghortimes_doc._cached_algorithms = None
         doc = Alghortimes_doc()
         algos = list(doc.get_algorithm_methods().keys())
+        if hasattr(self, 'simulation_manager'):
+            self.simulation_manager._algorithm_methods = doc.get_algorithm_methods()
+            self.simulation_manager.algorithm_instances.clear()
         
         # Update combo box if it exists
         if self.algo_combo:

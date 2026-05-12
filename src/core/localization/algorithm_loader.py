@@ -2,6 +2,7 @@ import os
 import sys
 import importlib.util
 import inspect
+import re
 from typing import Dict, Type, List
 from .base_algorithm import BaseLocalizationAlgorithm
 
@@ -14,6 +15,7 @@ class AlgorithmLoader:
     def __init__(self, algorithms_dir: str):
         self.algorithms_dir = algorithms_dir
         self.loaded_algorithms: Dict[str, Type[BaseLocalizationAlgorithm]] = {}
+        self.algorithm_metadata = {}
 
     def discover_algorithms(self) -> Dict[str, Type[BaseLocalizationAlgorithm]]:
         """
@@ -22,6 +24,7 @@ class AlgorithmLoader:
             Dict mapping algorithm names to algorithm classes
         """
         self.loaded_algorithms = {}
+        self.algorithm_metadata = {}
         
         if not os.path.exists(self.algorithms_dir):
             os.makedirs(self.algorithms_dir, exist_ok=True)
@@ -63,6 +66,15 @@ class AlgorithmLoader:
                             if not inspect.isabstract(obj):
                                 algorithm_instance = obj() # Instantiate to get name
                                 algo_name = algorithm_instance.name
+                                uses_imu = self._detect_imu_requirement(obj, file_path)
+                                obj.uses_imu = uses_imu
+                                if uses_imu and "imu" not in self._required_sensors(obj):
+                                    obj.required_sensors = tuple(self._required_sensors(obj) + ["imu"])
+                                self.algorithm_metadata[algo_name] = {
+                                    "uses_imu": uses_imu,
+                                    "required_sensors": list(self._required_sensors(obj)),
+                                    "file_path": file_path,
+                                }
                                 self.loaded_algorithms[algo_name] = obj
                                 print(f"Loaded custom algorithm: {algo_name} from {module_name}")
                         except Exception as e:
@@ -70,3 +82,35 @@ class AlgorithmLoader:
 
         except Exception as e:
             print(f"Failed to load algorithm from {file_path}: {e}")
+
+    @staticmethod
+    def _required_sensors(algorithm_class) -> list:
+        sensors = getattr(algorithm_class, "required_sensors", ()) or ()
+        if isinstance(sensors, str):
+            sensors = (sensors,)
+        return [str(sensor).strip().lower() for sensor in sensors]
+
+    def _detect_imu_requirement(self, algorithm_class, file_path: str) -> bool:
+        """Return whether a custom algorithm declares or uses IMU inputs.
+
+        New algorithms declare this with uses_imu/required_sensors. For older
+        generated personal algorithms, infer from source references so reloads
+        keep the same IMU behavior after application restart.
+        """
+        explicit = algorithm_class.__dict__.get("uses_imu", None)
+        if explicit is not None:
+            return bool(explicit)
+
+        if "imu" in self._required_sensors(algorithm_class):
+            return True
+
+        try:
+            with open(file_path, "r", encoding="utf-8") as handle:
+                source = handle.read()
+        except OSError:
+            return False
+
+        return bool(re.search(
+            r"input_data\.(imu_data_on|accel|gyro)\b|\bimu_data_on\b|\baccel_raw\b|\bgyro_raw\b",
+            source,
+        ))
