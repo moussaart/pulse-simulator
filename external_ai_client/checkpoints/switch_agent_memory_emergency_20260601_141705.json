@@ -1,0 +1,540 @@
+{
+  "save_time": "2026-06-01T14:17:05.963327",
+  "reason": "memory_emergency",
+  "episode": 27,
+  "step": 0,
+  "best_episode_reward": 19.014325698837638,
+  "config": {
+    "port": 5555,
+    "num_anchors": 8,
+    "num_agents": 4,
+    "episodes": 50,
+    "macro_steps_per_episode": 60,
+    "episode_duration_s": 60.0,
+    "tau_seconds": 1.0,
+    "imu_freq_hz": 100.0,
+    "uwb_freq_hz": 10.0,
+    "sub_steps_per_macro": 100,
+    "walking_speed_mps": 1.4,
+    "alpha": 0.6,
+    "dqn_lr": 0.001,
+    "dqn_batch_size": 64,
+    "dqn_gamma": 0.95
+  },
+  "total_episodes_completed": 27,
+  "episode_history": [
+    {
+      "episode": 1,
+      "total_reward": 19.014325698837638,
+      "per_agent_rewards": [
+        7.46652533300221,
+        11.547800365835428,
+        0.0,
+        0.0
+      ],
+      "mean_error": 0.26421365760161303,
+      "mean_energy": 6008.480280000004,
+      "mean_imu_duty": 0.34860000014305115,
+      "mean_loss": 0.3702155193047864,
+      "epsilon": 0.9975030600514392,
+      "steps_completed": 50,
+      "is_best": "True",
+      "ram_percent": 97.3,
+      "process_mb": 232.828125
+    },
+    {
+      "episode": 2,
+      "total_reward": 0.0,
+      "per_agent_rewards": [
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "mean_error": 0.0,
+      "mean_energy": 0.0,
+      "mean_imu_duty": 0.0,
+      "mean_loss": 0.0,
+      "epsilon": 0.9975030600514392,
+      "steps_completed": 0,
+      "is_best": "False",
+      "ram_percent": 97.3,
+      "process_mb": 232.859375
+    },
+    {
+      "episode": 3,
+      "total_reward": 0.0,
+      "per_agent_rewards": [
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "mean_error": 0.0,
+      "mean_energy": 0.0,
+      "mean_imu_duty": 0.0,
+      "mean_loss": 0.0,
+      "epsilon": 0.9975030600514392,
+      "steps_completed": 0,
+      "is_best": "False",
+      "ram_percent": 97.3,
+      "process_mb": 232.859375
+    },
+    {
+      "episode": 4,
+      "total_reward": 0.0,
+      "per_agent_rewards": [
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "mean_error": 0.0,
+      "mean_energy": 0.0,
+      "mean_imu_duty": 0.0,
+      "mean_loss": 0.0,
+      "epsilon": 0.9975030600514392,
+      "steps_completed": 0,
+      "is_best": "False",
+      "ram_percent": 97.3,
+      "process_mb": 232.859375
+    },
+    {
+      "episode": 5,
+      "total_reward": 0.0,
+      "per_agent_rewards": [
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "mean_error": 0.0,
+      "mean_energy": 0.0,
+      "mean_imu_duty": 0.0,
+      "mean_loss": 0.0,
+      "epsilon": 0.9975030600514392,
+      "steps_completed": 0,
+      "is_best": "False",
+      "ram_percent": 97.3,
+      "process_mb": 232.859375
+    },
+    {
+      "episode": 6,
+      "total_reward": 0.0,
+      "per_agent_rewards": [
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "mean_error": 0.0,
+      "mean_energy": 0.0,
+      "mean_imu_duty": 0.0,
+      "mean_loss": 0.0,
+      "epsilon": 0.9975030600514392,
+      "steps_completed": 0,
+      "is_best": "False",
+      "ram_percent": 97.3,
+      "process_mb": 232.859375
+    },
+    {
+      "episode": 7,
+      "total_reward": 0.0,
+      "per_agent_rewards": [
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "mean_error": 0.0,
+      "mean_energy": 0.0,
+      "mean_imu_duty": 0.0,
+      "mean_loss": 0.0,
+      "epsilon": 0.9975030600514392,
+      "steps_completed": 0,
+      "is_best": "False",
+      "ram_percent": 97.3,
+      "process_mb": 232.859375
+    },
+    {
+      "episode": 8,
+      "total_reward": 0.0,
+      "per_agent_rewards": [
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "mean_error": 0.0,
+      "mean_energy": 0.0,
+      "mean_imu_duty": 0.0,
+      "mean_loss": 0.0,
+      "epsilon": 0.9975030600514392,
+      "steps_completed": 0,
+      "is_best": "False",
+      "ram_percent": 97.4,
+      "process_mb": 232.859375
+    },
+    {
+      "episode": 9,
+      "total_reward": 0.0,
+      "per_agent_rewards": [
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "mean_error": 0.0,
+      "mean_energy": 0.0,
+      "mean_imu_duty": 0.0,
+      "mean_loss": 0.0,
+      "epsilon": 0.9975030600514392,
+      "steps_completed": 0,
+      "is_best": "False",
+      "ram_percent": 97.4,
+      "process_mb": 232.859375
+    },
+    {
+      "episode": 10,
+      "total_reward": 0.0,
+      "per_agent_rewards": [
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "mean_error": 0.0,
+      "mean_energy": 0.0,
+      "mean_imu_duty": 0.0,
+      "mean_loss": 0.0,
+      "epsilon": 0.9975030600514392,
+      "steps_completed": 0,
+      "is_best": "False",
+      "ram_percent": 97.4,
+      "process_mb": 232.859375
+    },
+    {
+      "episode": 11,
+      "total_reward": 0.0,
+      "per_agent_rewards": [
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "mean_error": 0.0,
+      "mean_energy": 0.0,
+      "mean_imu_duty": 0.0,
+      "mean_loss": 0.0,
+      "epsilon": 0.9975030600514392,
+      "steps_completed": 0,
+      "is_best": "False",
+      "ram_percent": 97.4,
+      "process_mb": 232.86328125
+    },
+    {
+      "episode": 12,
+      "total_reward": 0.0,
+      "per_agent_rewards": [
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "mean_error": 0.0,
+      "mean_energy": 0.0,
+      "mean_imu_duty": 0.0,
+      "mean_loss": 0.0,
+      "epsilon": 0.9975030600514392,
+      "steps_completed": 0,
+      "is_best": "False",
+      "ram_percent": 97.4,
+      "process_mb": 232.86328125
+    },
+    {
+      "episode": 13,
+      "total_reward": 0.0,
+      "per_agent_rewards": [
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "mean_error": 0.0,
+      "mean_energy": 0.0,
+      "mean_imu_duty": 0.0,
+      "mean_loss": 0.0,
+      "epsilon": 0.9975030600514392,
+      "steps_completed": 0,
+      "is_best": "False",
+      "ram_percent": 97.4,
+      "process_mb": 232.86328125
+    },
+    {
+      "episode": 14,
+      "total_reward": 0.0,
+      "per_agent_rewards": [
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "mean_error": 0.0,
+      "mean_energy": 0.0,
+      "mean_imu_duty": 0.0,
+      "mean_loss": 0.0,
+      "epsilon": 0.9975030600514392,
+      "steps_completed": 0,
+      "is_best": "False",
+      "ram_percent": 97.4,
+      "process_mb": 232.86328125
+    },
+    {
+      "episode": 15,
+      "total_reward": 0.0,
+      "per_agent_rewards": [
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "mean_error": 0.0,
+      "mean_energy": 0.0,
+      "mean_imu_duty": 0.0,
+      "mean_loss": 0.0,
+      "epsilon": 0.9975030600514392,
+      "steps_completed": 0,
+      "is_best": "False",
+      "ram_percent": 97.4,
+      "process_mb": 232.86328125
+    },
+    {
+      "episode": 16,
+      "total_reward": 0.0,
+      "per_agent_rewards": [
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "mean_error": 0.0,
+      "mean_energy": 0.0,
+      "mean_imu_duty": 0.0,
+      "mean_loss": 0.0,
+      "epsilon": 0.9975030600514392,
+      "steps_completed": 0,
+      "is_best": "False",
+      "ram_percent": 97.5,
+      "process_mb": 232.86328125
+    },
+    {
+      "episode": 17,
+      "total_reward": 0.0,
+      "per_agent_rewards": [
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "mean_error": 0.0,
+      "mean_energy": 0.0,
+      "mean_imu_duty": 0.0,
+      "mean_loss": 0.0,
+      "epsilon": 0.9975030600514392,
+      "steps_completed": 0,
+      "is_best": "False",
+      "ram_percent": 97.5,
+      "process_mb": 232.86328125
+    },
+    {
+      "episode": 18,
+      "total_reward": 0.0,
+      "per_agent_rewards": [
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "mean_error": 0.0,
+      "mean_energy": 0.0,
+      "mean_imu_duty": 0.0,
+      "mean_loss": 0.0,
+      "epsilon": 0.9975030600514392,
+      "steps_completed": 0,
+      "is_best": "False",
+      "ram_percent": 97.5,
+      "process_mb": 232.86328125
+    },
+    {
+      "episode": 19,
+      "total_reward": 0.0,
+      "per_agent_rewards": [
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "mean_error": 0.0,
+      "mean_energy": 0.0,
+      "mean_imu_duty": 0.0,
+      "mean_loss": 0.0,
+      "epsilon": 0.9975030600514392,
+      "steps_completed": 0,
+      "is_best": "False",
+      "ram_percent": 97.5,
+      "process_mb": 232.86328125
+    },
+    {
+      "episode": 20,
+      "total_reward": 0.0,
+      "per_agent_rewards": [
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "mean_error": 0.0,
+      "mean_energy": 0.0,
+      "mean_imu_duty": 0.0,
+      "mean_loss": 0.0,
+      "epsilon": 0.9975030600514392,
+      "steps_completed": 0,
+      "is_best": "False",
+      "ram_percent": 97.6,
+      "process_mb": 232.86328125
+    },
+    {
+      "episode": 21,
+      "total_reward": 0.0,
+      "per_agent_rewards": [
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "mean_error": 0.0,
+      "mean_energy": 0.0,
+      "mean_imu_duty": 0.0,
+      "mean_loss": 0.0,
+      "epsilon": 0.9975030600514392,
+      "steps_completed": 0,
+      "is_best": "False",
+      "ram_percent": 97.6,
+      "process_mb": 232.86328125
+    },
+    {
+      "episode": 22,
+      "total_reward": 0.0,
+      "per_agent_rewards": [
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "mean_error": 0.0,
+      "mean_energy": 0.0,
+      "mean_imu_duty": 0.0,
+      "mean_loss": 0.0,
+      "epsilon": 0.9975030600514392,
+      "steps_completed": 0,
+      "is_best": "False",
+      "ram_percent": 97.6,
+      "process_mb": 232.86328125
+    },
+    {
+      "episode": 23,
+      "total_reward": 0.0,
+      "per_agent_rewards": [
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "mean_error": 0.0,
+      "mean_energy": 0.0,
+      "mean_imu_duty": 0.0,
+      "mean_loss": 0.0,
+      "epsilon": 0.9975030600514392,
+      "steps_completed": 0,
+      "is_best": "False",
+      "ram_percent": 97.6,
+      "process_mb": 232.86328125
+    },
+    {
+      "episode": 24,
+      "total_reward": 0.0,
+      "per_agent_rewards": [
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "mean_error": 0.0,
+      "mean_energy": 0.0,
+      "mean_imu_duty": 0.0,
+      "mean_loss": 0.0,
+      "epsilon": 0.9975030600514392,
+      "steps_completed": 0,
+      "is_best": "False",
+      "ram_percent": 97.6,
+      "process_mb": 232.86328125
+    },
+    {
+      "episode": 25,
+      "total_reward": 0.0,
+      "per_agent_rewards": [
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "mean_error": 0.0,
+      "mean_energy": 0.0,
+      "mean_imu_duty": 0.0,
+      "mean_loss": 0.0,
+      "epsilon": 0.9975030600514392,
+      "steps_completed": 0,
+      "is_best": "False",
+      "ram_percent": 97.6,
+      "process_mb": 232.86328125
+    },
+    {
+      "episode": 26,
+      "total_reward": 0.0,
+      "per_agent_rewards": [
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "mean_error": 0.0,
+      "mean_energy": 0.0,
+      "mean_imu_duty": 0.0,
+      "mean_loss": 0.0,
+      "epsilon": 0.9975030600514392,
+      "steps_completed": 0,
+      "is_best": "False",
+      "ram_percent": 97.6,
+      "process_mb": 232.86328125
+    },
+    {
+      "episode": 27,
+      "total_reward": 0.0,
+      "per_agent_rewards": [
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "mean_error": 0.0,
+      "mean_energy": 0.0,
+      "mean_imu_duty": 0.0,
+      "mean_loss": 0.0,
+      "epsilon": 0.9975030600514392,
+      "steps_completed": 0,
+      "is_best": "False",
+      "ram_percent": 97.6,
+      "process_mb": 232.86328125
+    }
+  ]
+}

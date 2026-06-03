@@ -117,7 +117,13 @@ class Tag(UWBDevice):
                 dt = self.imu_simulator.dt
             else:
                 dt = t - self.last_update_time
-                if not np.isfinite(dt) or dt <= 0:
+                if dt == 0:
+                    # No time has elapsed. Return early to avoid duplicates and division-by-zero errors.
+                    return
+                elif dt < 0:
+                    # Simulation reset or rewind occurred: treat as initial update
+                    dt = self.imu_simulator.dt
+                elif not np.isfinite(dt):
                     raise ValueError(f"Invalid IMU delta time: {dt}")
 
             velocity = np.array([self.velocity.x, self.velocity.y, self.velocity.z], dtype=float)

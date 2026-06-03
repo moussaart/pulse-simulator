@@ -20,6 +20,12 @@ Usage:
     api.set_input_mode("uwb")
     api.set_filter("Extended Kalman Filter", alpha=0.3)
     api.set_energy_profile(ranging_mode="DS-TWR")
+
+    # Build the complete observation for an RL agent
+    obs = api.build_step_observation(
+        agent_id=0, step=10, true_pos=[1.0, 2.0],
+        est_pos=[1.1, 1.9], measurements={...}, ...
+    )
 """
 
 from typing import Dict, Any, List, Optional, Tuple
@@ -83,6 +89,9 @@ class AITrainingAPI:
         self._filter_adapter = FilterDataAdapter()
         self._channel_adapter = ChannelDataAdapter()
         self._geometry_adapter = GeometryDataAdapter()
+
+        # Per-step energy calculator (accumulates over the training episode)
+        self._energy_calculator = EnergyCalculator()
 
         # Snapshot of latest training step results
         self._latest_measurements: List[float] = []
@@ -272,6 +281,303 @@ class AITrainingAPI:
         """
         return self._config.to_dict()
 
+    def get_available_algorithms(self) -> List[str]:
+        """
+        Get the list of all available localization algorithms.
+
+        Returns:
+            Sorted list of algorithm display names
+        """
+        try:
+            from src.core.localization.Alghortimes_doc import Alghortimes_doc
+            doc = Alghortimes_doc()
+            return sorted(doc.get_algorithm_methods().keys())
+        except Exception:
+            return list(self._filter_adapter.get_registered_filters())
+
+    def get_measurement_source(self) -> str:
+        """
+        Get the current measurement source configuration.
+
+        Returns:
+            One of "uwb", "imu", or "both"
+        """
+        return self._config.input_mode
+
+    def get_imu_data(self, tag) -> Dict[str, Any]:
+        """
+        Extract the latest IMU data from a tag object.
+
+        Args:
+            tag: Tag object that has imu_data attribute
+
+        Returns:
+            Dictionary with acceleration and angular_velocity arrays,
+            plus an enabled flag.
+        """
+        imu_info: Dict[str, Any] = {
+            "acceleration": [0.0, 0.0, 0.0],
+            "angular_velocity": [0.0, 0.0, 0.0],
+            "enabled": False,
+        }
+
+        if tag is None:
+            return imu_info
+
+        imu_on = getattr(tag, "imu_data_on", False)
+        imu_info["enabled"] = imu_on
+
+        imu_data = getattr(tag, "imu_data", None)
+        if imu_data is not None and len(imu_data) > 0:
+            imu_info["acceleration"] = [
+                float(imu_data.acc_x[-1]),
+                float(imu_data.acc_y[-1]),
+                float(imu_data.acc_z[-1]),
+            ]
+            imu_info["angular_velocity"] = [
+                float(imu_data.gyro_x[-1]),
+                float(imu_data.gyro_y[-1]),
+                float(imu_data.gyro_z[-1]),
+            ]
+
+        return imu_info
+
+    def get_gdop(self, tag, anchors) -> float:
+        """
+        Compute the Geometric Dilution of Precision (GDOP).
+
+        Args:
+            tag: Tag object
+            anchors: List of anchor objects
+
+        Returns:
+            GDOP value (lower = better geometry)
+        """
+        return self._geometry_adapter.calculate_gdop(tag, anchors)
+
+    def get_per_step_energy(self, dt: float) -> Dict[str, Any]:
+        """
+        Calculate and accumulate energy consumed for one simulation step.
+
+        Args:
+            dt: Time step duration (seconds)
+
+        Returns:
+            Dictionary with instantaneous and cumulative energy data
+        """
+        result = self._energy_calculator.calculate_step(dt)
+        return {
+            "total_power_mW": round(result.total_power_mW, 4),
+            "step_energy_uJ": round(result.total_power_mW * dt * 1000.0, 4),
+            "cumulative_energy_J": round(result.total_energy_consumed_J, 6),
+            "battery_life_hours": round(result.battery_life_hours, 2),
+            "duty_cycle_percent": round(result.duty_cycle_percent, 4),
+            "ranging_mode": result.ranging_mode,
+            "uwb_active_power_mW": round(result.uwb_active_power_mW, 4),
+            "imu_power_mW": round(result.imu_power_mW, 4),
+        }
+
+    def reset_energy_accumulator(self) -> None:
+        """Reset the per-episode energy accumulator."""
+        self._energy_calculator.reset_accumulator()
+
+    # ================================================================
+    #          OBSERVATION BUILDER (for RL state dict)
+    # ================================================================
+
+    def build_step_observation(
+        self,
+        agent_id: int,
+        step: int,
+        dt: float,
+        true_pos: List[float],
+        est_pos: Optional[List[float]],
+        tag,
+        anchors: List,
+        measurements: Dict[str, float],
+        los_conditions: List[bool],
+        curr_error: float,
+        prev_error: float,
+        algorithm_name: str,
+        movement_speed: float,
+        movement_pattern: str,
+        channel_model=None,
+        measurement_source: Optional[str] = None,
+        active_anchor_count: Optional[int] = None,
+    ) -> Dict[str, Any]:
+        """
+        Build the complete enriched observation dictionary for one agent at
+        one simulation step. This is the canonical state sent to the RL client.
+
+        Args:
+            agent_id: Index of this agent
+            step: Current simulation step number
+            dt: Simulation time step (seconds)
+            true_pos: Ground truth position [x, y]
+            est_pos: Estimated position [x, y] or None
+            tag: Tag object (for IMU data access)
+            anchors: List of Anchor objects
+            measurements: Dict mapping anchor_id -> measured distance
+            los_conditions: List of booleans per anchor
+            curr_error: Current localization error
+            prev_error: Previous localization error
+            algorithm_name: Name of the active algorithm
+            movement_speed: Tag movement speed
+            movement_pattern: Movement pattern name
+            channel_model: ChannelConditions object (optional, for noise data)
+
+        Returns:
+            Comprehensive state dictionary ready for JSON serialization
+        """
+        timestamp = step * dt
+
+        # Anchor metadata
+        anchor_positions = [[float(a.position.x), float(a.position.y)] for a in anchors]
+        anchor_ids = [a.id for a in anchors]
+
+        # UWB range measurements and true distances
+        uwb_ranges = []
+        true_distances = []
+        for a in anchors:
+            uwb_ranges.append(float(measurements.get(a.id, 0.0)))
+            true_dist = np.linalg.norm([
+                a.position.x - true_pos[0],
+                a.position.y - true_pos[1]
+            ])
+            true_distances.append(float(true_dist))
+
+        # IMU data from the tag
+        imu_info = self.get_imu_data(tag)
+
+        # NLOS information
+        nlos_count = sum(1 for los in los_conditions if not los)
+        nlos_anchor_ids = [
+            anchor_ids[i] for i, los in enumerate(los_conditions)
+            if i < len(anchor_ids) and not los
+        ]
+
+        # Measurement noise standard deviations
+        noise_stds = []
+        if channel_model is not None:
+            for i, a in enumerate(anchors):
+                try:
+                    is_los = los_conditions[i] if i < len(los_conditions) else True
+                    distance = true_distances[i] if i < len(true_distances) else 1.0
+                    _, snr_linear = channel_model.get_received_signal_quality(distance)
+                    # Use CRLB-based estimate
+                    c = channel_model.c
+                    bw = channel_model.uwb_params.bandwidth
+                    if snr_linear > 0:
+                        crlb = (c ** 2) / (8 * np.pi ** 2 * bw ** 2 * snr_linear)
+                        noise_std = float(np.sqrt(crlb))
+                    else:
+                        noise_std = 1.0
+                    noise_stds.append(noise_std)
+                except Exception:
+                    noise_stds.append(0.0)
+
+        # GDOP computation
+        try:
+            gdop = self.get_gdop(tag, anchors)
+        except Exception:
+            gdop = float("inf")
+
+        # Available algorithms
+        available_algorithms = self.get_available_algorithms()
+
+        # Reconfigure energy calculator for this specific step's source/anchors
+        effective_source = measurement_source or self._config.input_mode
+        uses_imu = effective_source.lower() in ("imu", "both")
+        uses_uwb = effective_source.lower() in ("uwb", "both")
+        self._energy_calculator.set_imu_enabled(uses_imu)
+        self._energy_calculator.set_uwb_enabled(uses_uwb)
+        
+        # Use active_anchor_count if provided, otherwise default to len(anchors)
+        num_anchors = active_anchor_count if active_anchor_count is not None else len(anchors)
+        self._energy_calculator.set_num_anchors(num_anchors)
+
+        # Energy data for this step — use calculate() for instantaneous snapshot
+        # instead of calculate_step() which accumulates into a shared counter
+        # and cross-contaminates multi-agent energy readings.
+        _result = self._energy_calculator.calculate()
+        energy_data = {
+            "total_power_mW": round(_result.total_power_mW, 4),
+            "step_energy_uJ": round(_result.total_power_mW * dt * 1000.0, 4),
+            "cumulative_energy_J": 0.0,  # Not tracked here; server-side is authoritative
+            "battery_life_hours": round(_result.battery_life_hours, 2),
+            "duty_cycle_percent": round(_result.duty_cycle_percent, 4),
+            "ranging_mode": _result.ranging_mode,
+            "uwb_active_power_mW": round(_result.uwb_active_power_mW, 4),
+            "imu_power_mW": round(_result.imu_power_mW, 4),
+        }
+
+        # Build the complete observation
+        state_dict: Dict[str, Any] = {
+            "agent_id": agent_id,
+            "step": step,
+            "timestamp": float(timestamp),
+
+            # Positions
+            "tag_position_gt": [float(true_pos[0]), float(true_pos[1]), 0.0],
+            "tag_position_estimated": (
+                [float(est_pos[0]), float(est_pos[1])] if est_pos is not None
+                else None
+            ),
+            
+            # Root-level legacy compatibility fields
+            "localization_error": float(curr_error),
+            "prev_localization_error": float(prev_error),
+
+            # Anchors
+            "anchor_positions": anchor_positions,
+            "anchor_ids": anchor_ids,
+
+            # Measurements
+            "measurements": {
+                "source": self._config.input_mode,
+                "uwb_ranges": uwb_ranges,
+                "true_distances": true_distances,
+            },
+
+            # IMU
+            "imu_data": imu_info,
+
+            # NLOS
+            "nlos_info": {
+                "is_los": los_conditions,
+                "nlos_count": nlos_count,
+                "nlos_anchor_ids": nlos_anchor_ids,
+            },
+
+            # Algorithm
+            "algorithm": {
+                "name": algorithm_name,
+                "available_algorithms": available_algorithms,
+                "filter_params": dict(self._config.filter_params),
+            },
+
+            # Precision
+            "precision": {
+                "localization_error": float(curr_error),
+                "prev_localization_error": float(prev_error),
+                "gdop": float(gdop) if np.isfinite(gdop) else None,
+                "measurement_noise_stds": noise_stds,
+            },
+
+            # Energy
+            "energy": energy_data,
+
+            # Environment config
+            "environment": {
+                "dt": float(dt),
+                "movement_speed": float(movement_speed),
+                "movement_pattern": movement_pattern,
+                "measurement_source": effective_source,
+            },
+        }
+
+        return state_dict
+
     # ================================================================
     #                    SET OPERATIONS (Modify Config)
     # ================================================================
@@ -291,6 +597,7 @@ class AITrainingAPI:
         self._config.num_anchors = n
         # Also update the training energy adapter
         self._energy_adapter.update_config(num_anchors=n)
+        self._energy_calculator.set_num_anchors(n)
 
     def set_num_stacks(self, n: int) -> None:
         """
@@ -325,10 +632,19 @@ class AITrainingAPI:
 
         # Update energy adapter to reflect IMU usage
         uses_imu = mode.lower() in ("imu", "both")
-        uwb_disabled = mode.lower() == "imu"
         self._energy_adapter.update_config(
             imu_enabled=uses_imu,
         )
+        self._energy_calculator.set_imu_enabled(uses_imu)
+
+    def set_measurement_source(self, source: str) -> None:
+        """
+        Alias for set_input_mode — sets the measurement source.
+
+        Args:
+            source: One of "uwb", "imu", or "both"
+        """
+        self.set_input_mode(source)
 
     def set_filter(self, name: str, **params) -> None:
         """
@@ -363,6 +679,11 @@ class AITrainingAPI:
         """
         self._config.energy_profile.update(kwargs)
         self._energy_adapter.update_config(**kwargs)
+        # Also update the per-step calculator
+        cfg = self._energy_calculator.config
+        for key, value in kwargs.items():
+            if hasattr(cfg, key):
+                setattr(cfg, key, value)
 
     # ================================================================
     #                        SUMMARY / REPR
@@ -387,6 +708,7 @@ class AITrainingAPI:
             "algorithm": self.get_algorithm_info(),
             "energy": self.get_energy_info(),
             "available_filters": self.get_registered_filters(),
+            "available_algorithms": self.get_available_algorithms(),
         }
 
     def __repr__(self) -> str:

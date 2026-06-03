@@ -23,6 +23,7 @@ from src.gui.panels.dockable_panel import PanelManager
 from src.core.uwb.uwb_devices import Anchor, Tag, Position
 from src.core.uwb.channel_model import ChannelConditions, UWBParameters, PathLossParams
 from src.core.uwb.config_loader import load_channel_configs
+from src.core.parallel.gpu_backend import gpu_manager
 
 # Localization and Motion imports
 from src.core.localization import CustomMessageBox
@@ -520,12 +521,18 @@ class LocalizationApp(QMainWindow):
         
         # Status Panel
         def create_status_panel():
-            status_group, self.status_display = ControlPanelFactory.create_status_panel()
+            status_group, self.status_display, self.gpu_status_lbl, self.force_gpu_cb = ControlPanelFactory.create_status_panel()
             self.user_scrolling = False
             self.status_display.verticalScrollBar().sliderPressed.connect(
                 lambda: setattr(self, 'user_scrolling', True))
             self.status_display.verticalScrollBar().sliderReleased.connect(
                 lambda: setattr(self, 'user_scrolling', False))
+            
+            # Initialize GPU monitoring elements
+            self.gpu_status_lbl.setText(gpu_manager.get_status_string())
+            self.force_gpu_cb.setChecked(gpu_manager.config.force_gpu)
+            self.force_gpu_cb.stateChanged.connect(self.on_force_gpu_changed)
+            
             return status_group
         
 
@@ -742,6 +749,7 @@ class LocalizationApp(QMainWindow):
         # Create timeline widget
         self.timeline_widget = TimelineWidget()
         self.timeline_widget.timeChanged.connect(self._on_timeline_scrub)
+        self.timeline_widget.playbackStarted.connect(self.pause_simulation)
         # Connect settings signals
         self.timeline_widget.durationChanged.connect(self._on_duration_changed)
         self.timeline_widget.customDurationChanged.connect(self._on_custom_duration_changed)
@@ -1020,6 +1028,12 @@ class LocalizationApp(QMainWindow):
         visible = self.plot_manager.toggle_measurement_lines_visibility()
         self.lines_toggle_btn.setText("📏 Hide Lines" if visible else "📏 Show Lines")
     
+    def pause_simulation(self):
+        """Force the simulation into a paused state"""
+        if not self.is_paused:
+            self.pause_button.setChecked(True)
+            self.toggle_pause()
+            
     def toggle_pause(self):
         """Toggle simulation pause state with 3-state logic: Start/Pause/Continue"""
         # Check if simulation has ended
@@ -1050,6 +1064,10 @@ class LocalizationApp(QMainWindow):
             
             # Resume recording
             self.simulation_manager.recorder.resume_recording()
+            
+            # Pause timeline playback if it is playing to avoid conflicts
+            if hasattr(self, 'timeline_widget') and self.timeline_widget:
+                self.timeline_widget.pause_playback()
     
     def toggle_imu_window(self):
         """Toggle IMU data window"""
@@ -1686,6 +1704,7 @@ class LocalizationApp(QMainWindow):
 
     def _on_timeline_scrub(self, time_value):
         """Handle timeline slider scrubbing - restore state at given time"""
+        self.pause_simulation()
         snapshot = self.simulation_manager.recorder.get_snapshot_at_time(time_value)
         if not snapshot:
             print(f"No snapshot found at time {time_value:.2f}s")
@@ -1990,5 +2009,13 @@ class LocalizationApp(QMainWindow):
             os.startfile(folder)
         else:
             QMessageBox.warning(self, "Error", "User algorithms folder does not exist.")
+
+    def on_force_gpu_changed(self, state):
+        """Toggle force GPU acceleration mode."""
+        force_gpu = (state == Qt.Checked)
+        gpu_manager.configure(force_gpu=force_gpu)
+        if hasattr(self, 'gpu_status_lbl') and self.gpu_status_lbl:
+            self.gpu_status_lbl.setText(gpu_manager.get_status_string())
+
 
 

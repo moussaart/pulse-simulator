@@ -1,200 +1,144 @@
-import socket
-import json
-import torch    
-import torch.nn as nn
-import torch.optim as optim
-from torch.distributions import Categorical
+"""
+PULSE AI Training Agent — Multi-Agent Generic Script
+
+Demonstrates connecting to the PULSE simulator and training an RL agent
+using task-agnostic dictionaries for actions (filter selection, sensors, etc.)
+and vectorized outputs for multiple simultaneous agents.
+
+Usage:
+    1. Start the PULSE simulator and open the AI Training Window.
+    2. Ensure the port matches (default 5555).
+    3. Click "Start Training" in the simulator.
+    4. Run this script:
+        python train_agent.py
+"""
+
 import numpy as np
-import time
+import gymnasium as gym
+from gymnasium import spaces
+from typing import List, Any
+import random
 
-# ============================================================================
-# PULSE UWB Simulator - PyTorch RL Agent Example
-# ============================================================================
-# Connects to the AITrainingWindow (port 5555), receives the environment 
-# state, and uses a PyTorch Neural Network to predict the 3 best anchors
-# with the goal to minimize localization error (Proxy: select LOS + close).
-# ============================================================================
+from pulse_ai_client import PulseRLEnv, PulseState
 
-HOST = '127.0.0.1'
-PORT = 5555
 
-device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-print(f"==========================================")
-print(f" PyTorch Network Device: {device}")
-print(f"==========================================")
+# The 5 filters we want the agents to choose between
+AVAILABLE_FILTERS = [
+    "Improved Adaptive EKF",
+    "Extended Kalman Filter",
+    "NLOS-Aware",
+    "Trilateration",
+    "Min-Max"
+]
 
-class AnchorSelectNetwork(nn.Module):
-    def __init__(self, num_anchors, hidden_size=64):
-        super(AnchorSelectNetwork, self).__init__()
-        # Input features: anchor positions (num_anchors * 2) + localization error (1)
-        input_size = num_anchors * 2 + 1
+def format_multi_agent_actions(action: np.ndarray, num_anchors: int) -> List[dict]:
+    """
+    Map the raw RL action to the generic task-agnostic dictionary expected by the server.
+    
+    action: array of shape (NUM_AGENTS, 2)
+        - Column 0: Filter index (0-4)
+        - Column 1: IMU on/off (0 or 1)
+    """
+    actions = []
+    for a in action:
+        filter_idx = int(a[0])
+        use_imu = bool(a[1])
         
-        self.net = nn.Sequential(
-            nn.Linear(input_size, hidden_size),
-            nn.ReLU(),
-            nn.Linear(hidden_size, hidden_size),
-            nn.ReLU(),
-            nn.Linear(hidden_size, num_anchors) # Output: Logits for each anchor
-        )
-    
-    def forward(self, state):
-        return self.net(state)
+        # We can dynamically pick anchors, or just use all available
+        anchors_to_use = list(range(num_anchors))
+        
+        agent_action = {
+            "filter": AVAILABLE_FILTERS[filter_idx],
+            "measurement_source": "Both" if use_imu else "UWB",
+            "anchors": anchors_to_use
+        }
+        actions.append(agent_action)
+        
+    return actions
 
-def connect_to_simulator(host=HOST, port=PORT, retries=5):
-    for attempt in range(retries):
-        try:
-            print(f"Attempting to connect to AI Window at {host}:{port}...")
-            client_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            client_sock.connect((host, port))
-            print("✅ Successfully connected to the PULSE AI Window!")
-            return client_sock
-        except ConnectionRefusedError:
-            print(f"Connection refused. Ensure the AI Window is open and Play is pressed. (Attempt {attempt+1}/{retries})")
-            time.sleep(2)
-    return None
 
-def run_rl_loop():
-    client_sock = connect_to_simulator()
-    if not client_sock:
-        print("❌ Failed to connect. Exiting.")
-        return
+def main():
+    # ── Configuration ─────────────────────────────────────────────────
+    PORT = 5555
+    NUM_ANCHORS = 8
+    NUM_AGENTS = 3
+    EPISODES = 100
+    MAX_STEPS = 500
 
-    stream_reader = client_sock.makefile('r', encoding='utf-8')
-    print("\nListening for environment state...\n")
-    print("-" * 60)
+    print("=" * 60)
+    print("  PULSE AI Multi-Agent Training (Generic Architecture)")
+    print("=" * 60)
+    print(f"  Port: {PORT} | Anchors: {NUM_ANCHORS} | Agents: {NUM_AGENTS}")
+    print("=" * 60)
+
+    # ── Environment Definition ─────────────────────────────────────────
+    # Action Space: Per agent, [filter_index (0-4), use_imu (0-1)]
+    multi_action_space = spaces.MultiDiscrete([len(AVAILABLE_FILTERS), 2] * NUM_AGENTS)
     
-    # RL Setup
-    num_anchors = None
-    policy_net = None
-    optimizer = None
-    
-    # Store environment parameters once received
-    env_params_printed = False
-    
+    # We will use the built-in obs_formatter but define our own action formatter
+    def custom_action_formatter(act: np.ndarray):
+        # Reshape to (NUM_AGENTS, 2)
+        act = act.reshape((NUM_AGENTS, 2))
+        return format_multi_agent_actions(act, NUM_ANCHORS)
+
+    env = PulseRLEnv(
+        port=PORT,
+        num_anchors=NUM_ANCHORS,
+        num_agents=NUM_AGENTS,
+        action_space=multi_action_space,
+        action_formatter=custom_action_formatter,
+        vectorized=True
+    )
+
     try:
-        for line in stream_reader:
-            if not line.strip():
-                continue
-                
-            try:
-                # 1. READ STATE
-                raw_data = json.loads(line)
-                if isinstance(raw_data, list):
-                    states = raw_data
-                else:
-                    states = [raw_data]
-                    
-                all_actions = []
-                sum_reward = 0.0
-                sum_loss = 0.0
-                sum_entropy = 0.0
-                
-                for state_dict in states:
-                    step = state_dict.get('step', 0)
-                    agent_id = state_dict.get('agent_id', 0)
-                    gt = state_dict.get('tag_position_gt', [0, 0, 0])
-                    anchor_positions = state_dict.get('anchor_positions', [])
-                    curr_error = state_dict.get('localization_error', 0.0)
-                    prev_error = state_dict.get('prev_localization_error', 0.0)
-                    los_conditions = state_dict.get('is_los', state_dict.get('los_conditions', []))
-                    
-                    if not env_params_printed:
-                        print("\n" + "="*40)
-                        print(f" Environment Parameters:")
-                        print(f" - Algorithm: {state_dict.get('algorithm', 'Unknown')}")
-                        print(f" - Time Step (dt): {state_dict.get('dt', 'Unknown')}s")
-                        print(f" - Speed: {state_dict.get('movement_speed', 'Unknown')}m/s")
-                        print(f" - Pattern: {state_dict.get('movement_pattern', 'Unknown')}")
-                        print("="*40 + "\n")
-                        env_params_printed = True
+        obs, info = env.reset()
+        print(f"\n✅ Connected with {NUM_AGENTS} agents!")
 
-                    if agent_id == 0:
-                        print(f"[Step {step:04d}] Processing {len(states)} agents. Agent 0 GT: ({gt[0]:.2f}, {gt[1]:.2f})")
+        # ── Training Loop ─────────────────────────────────────────────
+        for episode in range(EPISODES):
+            episode_rewards = np.zeros(NUM_AGENTS)
+
+            for step in range(MAX_STEPS):
+                # Random multi-agent action (replace with your RL model)
+                action = env.action_space.sample()
+
+                obs, reward, terminated, truncated, info = env.step(action)
+                episode_rewards += reward
+                
+                states: List[PulseState] = info["states"]
+
+                # Print state for Agent 0 every 50 steps
+                if step % 50 == 0:
+                    a0_state = states[0]
+                    a0_act = action[:2]
+                    a0_filter = AVAILABLE_FILTERS[a0_act[0]]
                     
-                    # Dynamic Initialization of PyTorch network based on environment config
-                    if policy_net is None:
-                        num_anchors = len(anchor_positions)
-                        if num_anchors > 0:
-                            policy_net = AnchorSelectNetwork(num_anchors=num_anchors).to(device)
-                            optimizer = optim.Adam(policy_net.parameters(), lr=1e-3)
-                            print(f"✅ Initialized PyTorch Network for {num_anchors} anchors on {device}.")
+                    print(f"\n  [Ep {episode+1} | Step {step}] -> Agent 0 Overview")
+                    print(f"    Filter Used: {a0_filter}")
+                    print(f"    Sensors: {'UWB+IMU' if a0_act[1] else 'UWB Only'}")
+                    print(f"    Error: {a0_state.precision.localization_error:.3f}m")
+                    print(f"    Energy: {a0_state.energy.step_energy_uJ:.1f} µJ/step")
+                    print(f"    Agent 0 Reward: {reward[0]:.4f}")
 
-                    if num_anchors is None or num_anchors < 3:
-                        # Fallback for environments with too few anchors
-                        action_indices = list(range(num_anchors if num_anchors else 0))
-                        reward_val, policy_loss_val, entropy_val = 0.0, 0.0, 0.0
-                    else:
-                        # 2. PREPROCESS STATE
-                        # State: flattened anchor positions + localization error
-                        anchor_arr = np.array(anchor_positions, dtype=np.float32).flatten() / 10.0 # Normalize roughly
-                        error_val = np.array([curr_error], dtype=np.float32)
-                        
-                        state_features = np.concatenate((anchor_arr, error_val))
-                        state_tensor = torch.tensor(state_features, dtype=torch.float32, device=device)
-                        
-                        # 3. FORWARD PASS
-                        logits = policy_net(state_tensor)
-                        dist = Categorical(logits=logits) # Numerically stable
-                        probs = dist.probs
-                        
-                        action_probs, action_indices_tensor = torch.topk(probs, k=3)
-                        action_indices = action_indices_tensor.tolist()
-                        
-                        # 4. COMPUTE REWARD
-                        # +1 if error decreases, else -1
-                        if curr_error < prev_error:
-                            reward_val = 1.0
-                        else:
-                            reward_val = -1.0
-                        
-                        # 5. POLICY GRADIENT UPDATE
-                        joint_log_prob = dist.log_prob(action_indices_tensor).sum()
-                        loss = -joint_log_prob * reward_val
-                        
-                        optimizer.zero_grad()
-                        loss.backward()
-                        torch.nn.utils.clip_grad_norm_(policy_net.parameters(), max_norm=1.0) # Prevent exploding gradients
-                        optimizer.step()
-                        
-                        policy_loss_val = loss.item()
-                        entropy_val = dist.entropy().item()
-                        
-                    all_actions.append(action_indices)
-                    sum_reward += reward_val
-                    sum_loss += policy_loss_val
-                    sum_entropy += entropy_val
-                
-                num_states = max(1, len(states))
-                avg_reward = sum_reward / num_states
-                avg_loss = sum_loss / num_states
-                avg_entropy = sum_entropy / num_states
+                if terminated.all() or truncated.all():
+                    break
 
-                print(f"  └─ Avg Metrics: Reward={avg_reward:.2f} | Loss={avg_loss:.4f} | Entropy={avg_entropy:.4f}")
-                
-                # 6. SEND ACTION BACK TO SIMULATOR
-                response = {
-                    "action": all_actions,
-                    "metrics": {
-                        "reward": float(avg_reward),
-                        "policy_loss": float(avg_loss),
-                        "entropy": float(avg_entropy)
-                    }
-                }
-                json_response = json.dumps(response) + "\n"
-                client_sock.sendall(json_response.encode('utf-8'))
-                
-            except json.JSONDecodeError:
-                print("Failed to decode JSON state.")
-            except Exception as e:
-                print(f"Error processing step: {e}")
-                
+            print(f"\n── Episode {episode+1}/{EPISODES} ──")
+            print(f"   Rewards: {np.round(episode_rewards, 2)}")
+
+            # Reset for next episode
+            obs, info = env.reset()
+
     except KeyboardInterrupt:
-        print("\n🛑 Training interrupted by user.")
+        print("\n\n⏹  Training interrupted by user.")
     except Exception as e:
-        print(f"\n❌ Client Error: {e}")
+        print(f"\n❌ Error: {e}")
+        import traceback
+        traceback.print_exc()
     finally:
-        client_sock.close()
-        print("Connection closed.")
+        env.close()
+        print("\n✅ Disconnected from PULSE simulator.")
+
 
 if __name__ == "__main__":
-    run_rl_loop()
+    main()

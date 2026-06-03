@@ -1,0 +1,20 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pulse-ai-client"
+version = "1.0.0"
+description = "Client SDK for connecting RL agents to the PULSE UWB Simulator"
+readme = "README.md"
+requires-python = ">=3.8"
+dependencies = [
+    "gymnasium>=0.28.0",
+    "numpy>=1.21.0",
+]
+
+[project.optional-dependencies]
+rl = ["stable-baselines3>=2.0.0", "torch>=2.0.0"]
+
+[tool.setuptools.packages.find]
+include = ["pulse_ai_client*"]

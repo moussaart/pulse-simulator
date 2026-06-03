@@ -623,8 +623,10 @@ class ControlPanelFactory:
     @staticmethod
     def create_status_panel():
         """Create status display panel"""
-        status_group = ModernGroupBox("Status")
+        status_group = ModernGroupBox("📋 Status & GPU")
         status_layout = QVBoxLayout()
+        status_layout.setSpacing(6)
+        status_layout.setContentsMargins(6, 12, 6, 6)
         
         status_display = QTextEdit()
         status_display.setReadOnly(True)
@@ -633,9 +635,24 @@ class ControlPanelFactory:
         status_display.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOn)
         
         status_layout.addWidget(status_display)
+        
+        # GPU Acceleration and monitoring
+        gpu_layout = QHBoxLayout()
+        gpu_status_lbl = QLabel("GPU: Checking status...")
+        gpu_status_lbl.setStyleSheet("color: #00a6e3; font-weight: bold; font-family: 'Consolas', 'Courier New', monospace; font-size: 11px;")
+        gpu_status_lbl.setWordWrap(True)
+        
+        force_gpu_cb = QCheckBox("Force GPU")
+        force_gpu_cb.setStyleSheet("color: #ffffff; font-weight: bold; font-size: 11px;")
+        force_gpu_cb.setToolTip("Force all operations to run on GPU, bypassing size thresholds.")
+        
+        gpu_layout.addWidget(gpu_status_lbl, 1)
+        gpu_layout.addWidget(force_gpu_cb, 0)
+        
+        status_layout.addLayout(gpu_layout)
         status_group.setLayout(status_layout)
         
-        return status_group, status_display
+        return status_group, status_display, gpu_status_lbl, force_gpu_cb
 
     @staticmethod
     def create_energy_panel():

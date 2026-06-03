@@ -5,7 +5,8 @@ Handles file operations (save/load map configurations)
 import json
 from PyQt5.QtWidgets import QFileDialog
 from src.core.uwb.uwb_devices import Anchor, Position
-from src.core.uwb.channel_model import NLOSZone, PolygonNLOSZone, PathLossParams, MovingNLOSZone
+from src.core.uwb.Nlos_zones import NLOSZone, PolygonNLOSZone, MovingNLOSZone
+from src.core.uwb.uwb_types import PathLossParams
 from src.core.localization import Alghortimes_doc
 
 

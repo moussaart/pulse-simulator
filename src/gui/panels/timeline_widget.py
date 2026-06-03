@@ -18,7 +18,6 @@ class TimelineWidget(QWidget):
     # Signals
     timeChanged = pyqtSignal(float)  # Emitted when user scrubs to new time
     playbackStarted = pyqtSignal()
-    playbackStarted = pyqtSignal()
     playbackPaused = pyqtSignal()
     
     # Settings Signals

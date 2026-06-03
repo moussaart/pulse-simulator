@@ -74,7 +74,7 @@ class EnergyConfig:
     # ── IMU ───────────────────────────────────────────────────────────────
     imu_enabled: bool = True
     uwb_disabled: bool = False          # E.g., for "IMU Only" algorithm
-    imu_active_current_mA: float = 6.5  # Typical MEMS IMU active current
+    imu_active_current_mA: float = 1.0  # Typical MEMS IMU active current
     imu_sleep_current_mA: float = 0.006
     imu_sample_rate_hz: float = 100.0   # IMU sampling rate
 
@@ -269,8 +269,11 @@ class EnergyCalculator:
             duty_cycle = 0.0
 
         # --- Idle / sleep power ---
-        idle_fraction = 1.0 - duty_cycle
-        tag_idle_power = cfg.voltage * cfg.idle_current_mA * idle_fraction  # mW
+        if cfg.uwb_disabled:
+            tag_idle_power = cfg.voltage * cfg.sleep_current_mA  # mW
+        else:
+            idle_fraction = 1.0 - duty_cycle
+            tag_idle_power = cfg.voltage * cfg.idle_current_mA * idle_fraction  # mW
 
         # --- IMU power ---
         imu_power = 0.0
@@ -323,11 +326,15 @@ class EnergyCalculator:
 
     def set_num_anchors(self, n: int):
         """Set number of anchors."""
-        self.config.num_anchors = max(1, n)
+        self.config.num_anchors = max(0, n)
 
     def set_imu_enabled(self, enabled: bool):
         """Enable or disable IMU power contribution."""
         self.config.imu_enabled = enabled
+
+    def set_uwb_enabled(self, enabled: bool):
+        """Enable or disable UWB power contribution (for IMU-only mode)."""
+        self.config.uwb_disabled = not enabled
 
     def get_messages_per_ranging(self) -> int:
         """Return total message count for the current protocol."""

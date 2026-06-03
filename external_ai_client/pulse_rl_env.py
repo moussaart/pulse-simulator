@@ -133,4 +133,11 @@ class PulseRLEnv(gym.Env):
 
     def close(self):
         if self.client_socket:
-            self.client_socket.close()
+            try:
+                self.client_socket.shutdown(socket.SHUT_RDWR)
+            except Exception:
+                pass
+            try:
+                self.client_socket.close()
+            except Exception:
+                pass

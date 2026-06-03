@@ -5,6 +5,14 @@ from src.app.Localization_app import LocalizationApp
 from src.core.parallel.gpu_backend import gpu_manager
 from src.utils.resource_loader import seed_user_data
 
+def my_excepthook(type, value, tback):
+    import traceback
+    print("=== UNHANDLED EXCEPTION IN PYQT SLOT ===", file=sys.stderr)
+    traceback.print_exception(type, value, tback, file=sys.stderr)
+    print("========================================", file=sys.stderr)
+
+sys.excepthook = my_excepthook
+
 def main():
     # Seed writable user data on first frozen run (no-op in development)
     seed_user_data()

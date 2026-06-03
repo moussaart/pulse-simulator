@@ -229,6 +229,12 @@ class SimulationManager:
                     if hasattr(self.parent, 'update_energy_displays'):
                         self.parent.update_energy_displays()
                 
+                # Update GPU status panel rate-limited (every 20 frames)
+                self._frame_count = getattr(self, '_frame_count', 0) + 1
+                if self._frame_count % 20 == 0:
+                    if hasattr(self.parent, 'gpu_status_lbl') and self.parent.gpu_status_lbl:
+                        self.parent.gpu_status_lbl.setText(gpu_manager.get_status_string())
+                
         except SimulationError as e:
             self._handle_simulation_error(e)
         except Exception as e:
@@ -260,9 +266,11 @@ class SimulationManager:
         self.is_paused = True
         self.recorder.mark_simulation_ended()
         
-        # Stop the timer
+        # Stop the timer and update parent pause state
         if hasattr(self.parent, 'timer'):
             self.parent.timer.stop()
+        if hasattr(self.parent, 'is_paused'):
+            self.parent.is_paused = True
         
         # Update pause button
         if hasattr(self.parent, 'pause_button'):
@@ -466,11 +474,11 @@ class SimulationManager:
             tag_pos = self.parent.tag.position
             channel = self.parent.channel_conditions
             
-            # 1. Compute all LOS conditions in one pass
-            is_los_array = np.array([
-                channel.check_los_to_anchor(a.position, tag_pos)
-                for a in anchors
-            ])
+            # 1. Compute all LOS conditions in one pass using GPU-accelerated batch check
+            anchor_positions_array = np.array([
+                [a.position.x, a.position.y] for a in anchors
+            ], dtype=np.float64)
+            is_los_array = channel.batch_update_los_conditions(anchor_positions_array, tag_pos)
             
             # 2. Update channel conditions with first anchor (they share model params)
             channel.update_los_condition(anchors[0].position, tag_pos)
@@ -585,7 +593,7 @@ class SimulationManager:
                     gyro=gyro,
                     control_input=u,
                     is_los=is_los,
-                    params={} # Add any extra params if needed
+                    params={"movement_speed": getattr(self.parent, "movement_speed", 1.0)} # Add any extra params if needed
                 )
                 
                 output = algo_instance.update(input_data)

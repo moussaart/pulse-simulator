@@ -7,7 +7,9 @@ from PyQt5.QtGui import QFont
 import pyqtgraph as pg
 import numpy as np
 from src.core.uwb.uwb_devices import Anchor, Tag, Position
-from src.core.uwb.channel_model import ChannelConditions, PolygonNLOSZone, PathLossParams, NLOSZone
+from src.core.uwb.Nlos_zones import NLOSZone, PolygonNLOSZone
+from src.core.uwb.uwb_types import PathLossParams
+from src.core.uwb.channel_model import ChannelConditions
 import time
 from collections import deque
 from src.gui.windows.nlos_config_window import NLOSConfigWindow

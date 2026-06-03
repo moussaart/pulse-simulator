@@ -465,7 +465,10 @@ class UWBChannelModel:
         # However, for computational speed in a "simulation" loop, we often abstract this.
         # Given the request for "Unified C.I.R", we simulate it.
         
-        t_vec, h_t, t0_true = self.generate_unified_cir(true_distance, is_los, anchor_pos=anchor_pos, avg_loss_db=path_loss_db)
+        # Ensure intermediate arrays stay on the GPU if GPU acceleration is active
+        t_vec, h_t, t0_true = self.generate_unified_cir(
+            true_distance, is_los, return_on_device=gpu_manager.available, anchor_pos=anchor_pos, avg_loss_db=path_loss_db
+        )
         
         # --- 3. Detection ---
         toa_est_raw, detected_flag = self.detect_toa(t_vec, h_t, snr_linear)
@@ -550,6 +553,10 @@ class UWBChannelModel:
                 else:
                      kurtosis = 0.0
 
+        # Transfer GPU arrays to CPU arrays right before constructing the final RangingResult object
+        t_vec_cpu = to_cpu(t_vec)
+        h_t_cpu = to_cpu(h_t)
+
         return RangingResult(
             measured_distance=measured_dist,
             true_distance=true_distance,
@@ -566,10 +573,10 @@ class UWBChannelModel:
             is_los=is_los,
             first_path_detected=detected_flag,
             measurement_std=sigma_std,
-            cir_time_vector=t_vec,
-            cir_amplitude=np.abs(h_t),
-            cir_first_path_index=np.argmax(t_vec >= toa_est_raw) if detected_flag else np.argmax(np.abs(h_t)),
-            cir_complex=h_t,
+            cir_time_vector=t_vec_cpu,
+            cir_amplitude=np.abs(h_t_cpu),
+            cir_first_path_index=np.argmax(t_vec_cpu >= toa_est_raw) if detected_flag else np.argmax(np.abs(h_t_cpu)),
+            cir_complex=h_t_cpu,
             rms_delay_spread=rms_delay_spread,
             mean_excess_delay=mean_excess_delay,
             kurtosis=kurtosis,

@@ -2,6 +2,7 @@
 Event Handlers Module
 Handles all mouse events and user interactions
 """
+import sys
 import numpy as np
 from PyQt5.QtCore import Qt, QObject, QEvent
 from PyQt5.QtWidgets import QMenu, QAction, QApplication
@@ -151,65 +152,70 @@ class EventHandler:
     
     def handle_plot_click(self, event):
         """Handle mouse click events on the plot"""
-        pos = event.scenePos()
-        x, y = self.map_to_plot_coords(pos)
-        
-        # Handle target point selection
-        if self.selecting_target and event.button() == Qt.LeftButton:
-            self.handle_target_point_selection(x, y)
-            return
-        
-        # Skip if we just finished dragging (click is the release)
-        if self.dragging_anchor is not None:
-            return
-        
-        # Handle right-click to end drawing
-        if event.button() == Qt.RightButton:
-            if self.handle_right_click_drawing(x, y):
-                return
-        
-        if event.button() != Qt.LeftButton:
-            return
+        try:
+            pos = event.scenePos()
+            x, y = self.map_to_plot_coords(pos)
             
-        # Handle zone deletion
-        if self.deleting_zone:
-            self.handle_zone_deletion(x, y)
-            return
-        
-        # Check if clicked on existing NLOS zone (only if not in special modes)
-        if not self.adding_anchor and not self.deleting_anchor:
-            if self.check_nlos_zone_click(x, y, event):
+            # Handle target point selection
+            if self.selecting_target and event.button() == Qt.LeftButton:
+                self.handle_target_point_selection(x, y)
                 return
-        
-        # Handle polygon drawing
-        if self.drawing_polygon:
-            self.handle_polygon_point_add(x, y)
-            return
-        
-        # Handle line drawing
-        if self.drawing_line:
-            self.handle_line_drawing(x, y)
-            return
-        
-        # Handle anchor deletion
-        if self.deleting_anchor:
-            self.handle_anchor_deletion(x, y)
-            return
-        
-        # Handle anchor addition
-        if self.adding_anchor:
-            self.handle_anchor_addition(x, y)
-            return
-        
-        # Handle trajectory drawing
-        if self.drawing_trajectory:
-            self.handle_trajectory_drawing(x, y, event)
-            return
+            
+            # Skip if we just finished dragging (click is the release)
+            if self.dragging_anchor is not None:
+                return
+            
+            # Handle right-click to end drawing
+            if event.button() == Qt.RightButton:
+                if self.handle_right_click_drawing(x, y):
+                    return
+            
+            if event.button() != Qt.LeftButton:
+                return
+                
+            # Handle zone deletion
+            if self.deleting_zone:
+                self.handle_zone_deletion(x, y)
+                return
+            
+            # Check if clicked on existing NLOS zone (only if not in special modes)
+            if not self.adding_anchor and not self.deleting_anchor:
+                if self.check_nlos_zone_click(x, y, event):
+                    return
+            
+            # Handle polygon drawing
+            if self.drawing_polygon:
+                self.handle_polygon_point_add(x, y)
+                return
+            
+            # Handle line drawing
+            if self.drawing_line:
+                self.handle_line_drawing(x, y)
+                return
+            
+            # Handle anchor deletion
+            if self.deleting_anchor:
+                self.handle_anchor_deletion(x, y)
+                return
+            
+            # Handle anchor addition
+            if self.adding_anchor:
+                self.handle_anchor_addition(x, y)
+                return
+            
+            # Handle trajectory drawing
+            if self.drawing_trajectory:
+                self.handle_trajectory_drawing(x, y, event)
+                return
 
-        # Handle moving zone trajectory picking
-        if self.picking_moving_trajectory:
-            self.handle_moving_zone_picking(x, y)
-            return
+            # Handle moving zone trajectory picking
+            if self.picking_moving_trajectory:
+                self.handle_moving_zone_picking(x, y)
+                return
+        except Exception as e:
+            import traceback
+            print(f"Error in handle_plot_click: {e}", file=sys.stderr)
+            traceback.print_exc()
     
     def handle_mouse_move(self, pos):
         """Handle mouse movement events"""
@@ -297,7 +303,7 @@ class EventHandler:
     
     def check_nlos_zone_click(self, x, y, event):
         """Check if click is on an existing NLOS zone"""
-        from src.core.uwb.channel_model import NLOSZone, PolygonNLOSZone
+        from src.core.uwb.Nlos_zones import NLOSZone, PolygonNLOSZone
         
         point = Position(x, y)
         

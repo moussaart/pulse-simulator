@@ -7,7 +7,8 @@ import pyqtgraph as pg
 import cv2
 from PyQt5.QtWidgets import QDialog, QFileDialog, QInputDialog, QMessageBox
 from PyQt5.QtCore import Qt
-from src.core.uwb.channel_model import NLOSZone, PolygonNLOSZone, PathLossParams, MovingNLOSZone
+from src.core.uwb.Nlos_zones import NLOSZone, PolygonNLOSZone, MovingNLOSZone
+from src.core.uwb.uwb_types import PathLossParams
 from src.core.uwb.uwb_devices import Position
 from src.gui.windows.nlos_config_window import NLOSConfigWindow
 from src.gui.windows.image_import_window import ImageImportWindow

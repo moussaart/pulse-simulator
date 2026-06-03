@@ -1,0 +1,409 @@
+{
+    "anchors": [
+        {
+            "id": "A1",
+            "x": -17.1143098524346,
+            "y": -8.959023496129236
+        },
+        {
+            "id": "A2",
+            "x": 28.698544334804602,
+            "y": 9.111011798141444
+        },
+        {
+            "id": "A3",
+            "x": -17.008015527174187,
+            "y": 9.21730612340186
+        },
+        {
+            "id": "A4",
+            "x": 28.59225000954418,
+            "y": -8.852729170868821
+        },
+        {
+            "id": "A5",
+            "x": -29.231862932121995,
+            "y": -1.2526849147490928
+        }
+    ],
+    "nlos_zones": [
+        {
+            "type": "polygon",
+            "points": [
+                [
+                    -30.088513244478513,
+                    10.068187033985119
+                ],
+                [
+                    -29.982218919218095,
+                    -10.127734765493878
+                ],
+                [
+                    -30.182216149192545,
+                    -10.128787382493742
+                ],
+                [
+                    -30.288510474452963,
+                    10.067134416985255
+                ],
+                [
+                    -30.088513244478513,
+                    10.068187033985119
+                ]
+            ],
+            "color": [
+                85,
+                255,
+                0
+            ],
+            "parameters": {
+                "path_loss_exponent": 3.07,
+                "shadow_fading_std": 3.9,
+                "frequency_decay_factor": 1.0,
+                "error_bias": 0.1,
+                "noise_factor": 1.5,
+                "rms_delay_spread": 2e-08,
+                "sv_params": {
+                    "cluster_decay": 1.5000000000000002e-08,
+                    "ray_decay": 5.600000000000001e-10,
+                    "cluster_arrival_rate": 400000000.0,
+                    "ray_arrival_rate": 500000000.0
+                }
+            }
+        },
+        {
+            "type": "polygon",
+            "points": [
+                [
+                    -29.604071961123772,
+                    -9.975114071372944
+                ],
+                [
+                    29.814455859448632,
+                    -9.86881974611253
+                ],
+                [
+                    29.81481364062928,
+                    -10.06881942609384
+                ],
+                [
+                    -29.603714179943125,
+                    -10.175113751354255
+                ],
+                [
+                    -29.604071961123772,
+                    -9.975114071372944
+                ]
+            ],
+            "color": [
+                85,
+                255,
+                0
+            ],
+            "parameters": {
+                "path_loss_exponent": 3.07,
+                "shadow_fading_std": 3.9,
+                "frequency_decay_factor": 1.0,
+                "error_bias": 0.1,
+                "noise_factor": 1.5,
+                "rms_delay_spread": 2e-08,
+                "sv_params": {
+                    "cluster_decay": 1.5000000000000002e-08,
+                    "ray_decay": 5.600000000000001e-10,
+                    "cluster_arrival_rate": 400000000.0,
+                    "ray_arrival_rate": 500000000.0
+                }
+            }
+        },
+        {
+            "type": "polygon",
+            "points": [
+                [
+                    -29.92330748256554,
+                    10.114512150722565
+                ],
+                [
+                    30.07983912693915,
+                    10.433395126503811
+                ],
+                [
+                    30.08090199944084,
+                    10.23339795076864
+                ],
+                [
+                    -29.92224461006385,
+                    9.914514974987394
+                ],
+                [
+                    -29.92330748256554,
+                    10.114512150722565
+                ]
+            ],
+            "color": [
+                85,
+                255,
+                0
+            ],
+            "parameters": {
+                "path_loss_exponent": 3.07,
+                "shadow_fading_std": 3.9,
+                "frequency_decay_factor": 1.0,
+                "error_bias": 0.1,
+                "noise_factor": 1.5,
+                "rms_delay_spread": 2e-08,
+                "sv_params": {
+                    "cluster_decay": 1.5000000000000002e-08,
+                    "ray_decay": 5.600000000000001e-10,
+                    "cluster_arrival_rate": 400000000.0,
+                    "ray_arrival_rate": 500000000.0
+                }
+            }
+        },
+        {
+            "type": "polygon",
+            "points": [
+                [
+                    29.967771412327878,
+                    9.96281552340823
+                ],
+                [
+                    30.0740657375883,
+                    2.6285070804395425
+                ],
+                [
+                    29.874086738270876,
+                    2.6256088340726236
+                ],
+                [
+                    29.767792413010454,
+                    9.959917277041312
+                ],
+                [
+                    29.967771412327878,
+                    9.96281552340823
+                ]
+            ],
+            "color": [
+                85,
+                255,
+                0
+            ],
+            "parameters": {
+                "path_loss_exponent": 3.07,
+                "shadow_fading_std": 3.9,
+                "frequency_decay_factor": 1.0,
+                "error_bias": 0.1,
+                "noise_factor": 1.5,
+                "rms_delay_spread": 2e-08,
+                "sv_params": {
+                    "cluster_decay": 1.5000000000000002e-08,
+                    "ray_decay": 5.600000000000001e-10,
+                    "cluster_arrival_rate": 400000000.0,
+                    "ray_arrival_rate": 500000000.0
+                }
+            }
+        },
+        {
+            "type": "polygon",
+            "points": [
+                [
+                    29.874086440449638,
+                    -10.076542337041884
+                ],
+                [
+                    29.767792115189216,
+                    -2.635939568812783
+                ],
+                [
+                    29.967771710149115,
+                    -2.6330827174562126
+                ],
+                [
+                    30.074066035409537,
+                    -10.073685485685315
+                ],
+                [
+                    29.874086440449638,
+                    -10.076542337041884
+                ]
+            ],
+            "color": [
+                85,
+                255,
+                0
+            ],
+            "parameters": {
+                "path_loss_exponent": 3.07,
+                "shadow_fading_std": 3.9,
+                "frequency_decay_factor": 1.0,
+                "error_bias": 0.1,
+                "noise_factor": 1.5,
+                "rms_delay_spread": 2e-08,
+                "sv_params": {
+                    "cluster_decay": 1.5000000000000002e-08,
+                    "ray_decay": 5.600000000000001e-10,
+                    "cluster_arrival_rate": 400000000.0,
+                    "ray_arrival_rate": 500000000.0
+                }
+            }
+        },
+        {
+            "type": "polygon",
+            "points": [
+                [
+                    -30.242111506151534,
+                    0.1759931272917623
+                ],
+                [
+                    -18.49658856487559,
+                    0.22914028992196944
+                ],
+                [
+                    -18.49568359676441,
+                    0.029142337350654968
+                ],
+                [
+                    -30.241206538040355,
+                    -0.024004825279552167
+                ],
+                [
+                    -30.242111506151534,
+                    0.1759931272917623
+                ]
+            ],
+            "color": [
+                85,
+                255,
+                0
+            ],
+            "parameters": {
+                "path_loss_exponent": 3.07,
+                "shadow_fading_std": 3.9,
+                "frequency_decay_factor": 1.0,
+                "error_bias": 0.1,
+                "noise_factor": 1.5,
+                "rms_delay_spread": 2e-08,
+                "sv_params": {
+                    "cluster_decay": 1.5000000000000002e-08,
+                    "ray_decay": 5.600000000000001e-10,
+                    "cluster_arrival_rate": 400000000.0,
+                    "ray_arrival_rate": 500000000.0
+                }
+            }
+        },
+        {
+            "type": "polygon",
+            "points": [
+                [
+                    -18.596122863796417,
+                    0.12751551228710212
+                ],
+                [
+                    -18.70241718905684,
+                    6.664616515802672
+                ],
+                [
+                    -18.502443623104007,
+                    6.667868118501092
+                ],
+                [
+                    -18.396149297843586,
+                    0.1307671149855223
+                ],
+                [
+                    -18.596122863796417,
+                    0.12751551228710212
+                ]
+            ],
+            "color": [
+                85,
+                255,
+                0
+            ],
+            "parameters": {
+                "path_loss_exponent": 3.07,
+                "shadow_fading_std": 3.9,
+                "frequency_decay_factor": 1.0,
+                "error_bias": 0.1,
+                "noise_factor": 1.5,
+                "rms_delay_spread": 2e-08,
+                "sv_params": {
+                    "cluster_decay": 1.5000000000000002e-08,
+                    "ray_decay": 5.600000000000001e-10,
+                    "cluster_arrival_rate": 400000000.0,
+                    "ray_arrival_rate": 500000000.0
+                }
+            }
+        },
+        {
+            "type": "polygon",
+            "points": [
+                [
+                    -18.50243040608042,
+                    0.23543563889672825
+                ],
+                [
+                    -18.50243040608042,
+                    -6.567401177769883
+                ],
+                [
+                    -18.702430406080424,
+                    -6.567401177769883
+                ],
+                [
+                    -18.702430406080424,
+                    0.23543563889672825
+                ],
+                [
+                    -18.50243040608042,
+                    0.23543563889672825
+                ]
+            ],
+            "color": [
+                85,
+                255,
+                0
+            ],
+            "parameters": {
+                "path_loss_exponent": 3.07,
+                "shadow_fading_std": 3.9,
+                "frequency_decay_factor": 1.0,
+                "error_bias": 0.1,
+                "noise_factor": 1.5,
+                "rms_delay_spread": 2e-08,
+                "sv_params": {
+                    "cluster_decay": 1.5000000000000002e-08,
+                    "ray_decay": 5.600000000000001e-10,
+                    "cluster_arrival_rate": 400000000.0,
+                    "ray_arrival_rate": 500000000.0
+                }
+            }
+        }
+    ],
+    "algorithm": "Adaptive Extended Kalman Filter",
+    "algorithm_config": {
+        "name": "Adaptive Extended Kalman Filter",
+        "uses_imu": false
+    },
+    "tag_config": {
+        "imu_data_on": true
+    },
+    "movement_pattern": "Custom:long_test",
+    "movement_speed": 6.0,
+    "timestep_ms": 17,
+    "uwb_config": {
+        "channel": "5",
+        "environment": "Residential",
+        "noise_model": "Gaussian",
+        "tx_gain": 0.0,
+        "rx_gain": 0.0,
+        "noise_figure": 6.0,
+        "los_path_loss": 2.0,
+        "los_shadowing": 2.0,
+        "freq_decay": 1.0,
+        "cluster_decay": 7.1,
+        "ray_decay": 4.3,
+        "toa_threshold": 0.1,
+        "fixed_noise": 0.1
+    }
+}
