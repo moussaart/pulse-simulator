@@ -612,6 +612,225 @@ The explicit parameters dictating this rigorous algorithmic phase fundamentally 
 3. **Execution Update Protocol Phase**:  
    - Iteratively implements a final a posteriori parameter correction strictly using optimized configurations mapping the gain factor $K(k)$, innovation metrics dictating the deviation parameter specific to $\tilde{Z}(k)$, aligned perfectly symmetrically incorporating recalibrated arrays structurally defining $Q(k)$.
 
+
+
+# Amélioration du Filtre NA-AEKF par l'Intégration des Mesures IMU  
+## IMU-Assisted NLOS-Aware EKF (IA-NAEKF)
+
+Ce rapport présente le filtre NA-AEKF (NLOS-Aware Adaptive Extended Kalman Filter) en détaillant ses avantages pour la localisation en environnement non-ligne de visée (NLOS). Il expose également la problématique liée à la classification des mesures LOS/NLOS — qui, dans certains cas, n'atteint qu'une précision d'environ 90 % —, et décrit l'idée innovante d'intégrer les mesures IMU pour pallier ces incertitudes. La dernière partie du document détaille le modèle mathématique complet de cette approche hybride.
+
+
+## 1. Problématique Rencontrée
+
+Dans des scénarios réels, la classification des mesures en conditions LOS et NLOS repose souvent sur des algorithmes de détection qui, même s'ils atteignent en général une précision d'environ 90 %, laissent subsister une part d'incertitude non négligeable. Ce taux d'erreur peut conduire à :
+
+- **Des erreurs dans l'estimation de la variance :**  
+  Une classification erronée (par exemple, considérer une mesure NLOS comme LOS) entraîne une mauvaise pondération lors de la fusion des mesures, ce qui dégrade la précision de la localisation.
+  
+- **Une propagation de l'erreur dans l'état estimé :**  
+  Une variance sous-estimée pour une mesure affectée par des conditions NLOS peut biaiser la correction de l'état dans le filtre de Kalman étendu.
+
+---
+
+## 2. Idée Proposée pour Résoudre le Problème
+
+Afin d'atténuer les effets d'une classification imparfaite des conditions LOS/NLOS, l'idée est d'intégrer directement les mesures issues d'un capteur inertiel (IMU) dans le schéma de filtrage. Cette approche présente plusieurs avantages :
+
+- **Amélioration de la prédiction :**  
+  Les mesures IMU, notamment les accélérations mesurées, sont intégrées dans la phase de prédiction pour affiner l'estimation de l'accélération du système. Un blending (pondération) des accélérations prédites et mesurées permet de tirer parti de la rapidité des mesures IMU.
+  
+- **Renforcement de la robustesse en situation d'incertitude :**  
+  Lorsque la classification LOS/NLOS est douteuse, la fusion des informations UWB (distance) avec les mesures IMU (accélération) permet d'obtenir une estimation plus fiable de l'état. De plus, en appliquant une détection de zéro vitesse (ZUPT) lorsque l'accélération est faible, des contraintes supplémentaires sont introduites pour renforcer la stabilité du système.
+
+- **Réduction de l'impact des erreurs de classification :**  
+  L'ajout des mesures IMU dans le vecteur de mesure unifié offre une redondance qui aide à compenser les erreurs potentielles dans l'adaptation de la matrice $\mathbf{R}$ basée sur le vecteur $\text{is\_los}$.
+
+---
+
+## 3. Modèle Mathématique
+
+### 3.1. Modélisation de l'État et Dynamique du Système
+
+Le vecteur d'état est défini comme :
+$$
+\mathbf{x} = \begin{bmatrix} x \\ y \\ v_x \\ v_y \\ a_x \\ a_y \end{bmatrix},
+$$
+représentant la position, la vitesse et l'accélération dans le plan.
+
+La dynamique du système suit un modèle de mouvement à accélération constante :
+$$
+\mathbf{x}_{k+1} = \mathbf{F}\,\mathbf{x}_k + \mathbf{w}_k,
+$$
+avec la matrice de transition :
+$$
+\mathbf{F} = \begin{bmatrix}
+1 & 0 & dt & 0 & \tfrac{1}{2} dt^2 & 0 \\
+0 & 1 & 0 & dt & 0 & \tfrac{1}{2} dt^2 \\
+0 & 0 & 1 & 0 & dt & 0 \\
+0 & 0 & 0 & 1 & 0 & dt \\
+0 & 0 & 0 & 0 & 1 & 0 \\
+0 & 0 & 0 & 0 & 0 & 1
+\end{bmatrix},
+$$
+où $dt$ représente l'intervalle de temps entre deux mises à jour.
+
+Le bruit de processus, supposé gaussien, est caractérisé par une covariance $\mathbf{Q}$ définie comme suit :
+$$
+\mathbf{Q} = \begin{bmatrix}
+\frac{dt^4}{4}\,\sigma_a & 0 & 0 & 0 & 0 & 0 \\
+0 & \frac{dt^4}{4}\,\sigma_a & 0 & 0 & 0 & 0 \\
+0 & 0 & dt^2\,\sigma_a & 0 & 0 & 0 \\
+0 & 0 & 0 & dt^2\,\sigma_a & 0 & 0 \\
+0 & 0 & 0 & 0 & dt\,\sigma_j & 0 \\
+0 & 0 & 0 & 0 & 0 & dt\,\sigma_j 
+\end{bmatrix},
+$$
+où $\sigma_a$ est le bruit d'accélération et $\sigma_j$ celui du « jerk » (variation de l'accélération).
+
+La prédiction de l'état est alors donnée par :
+$$
+\hat{\mathbf{x}}_{k|k-1} = \mathbf{F}\,\mathbf{x}_k.
+$$
+
+**Incorporation des mesures IMU :**  
+Les mesures IMU, fournissant les accélérations $a_{x,\text{IMU}}$ et $a_{y,\text{IMU}}$, sont intégrées dans la prédiction à l'aide d'un blending :
+$$
+\hat{a}_x = (1-\omega)\,\hat{a}_{x,\text{pred}} + \omega\,a_{x,\text{IMU}},
+$$
+$$
+\hat{a}_y = (1-\omega)\,\hat{a}_{y,\text{pred}} + \omega\,a_{y,\text{IMU}},
+$$
+avec $\omega$ (par exemple 0.7) représentant le poids attribué aux mesures IMU. La covariance prédite se calcule par :
+$$
+\mathbf{P}_{k|k-1} = \mathbf{F}\,\mathbf{P}_k\,\mathbf{F}^T + \mathbf{Q}.
+$$
+
+---
+
+### 3.2. Modèle de Mesure
+
+Les mesures proviennent de trois sources distinctes :
+
+#### 3.2.1. Mesures UWB
+
+Pour chaque ancre $i$, la mesure de distance est donnée par :
+$$
+z_i = \sqrt{(x - x_i)^2 + (y - y_i)^2} + v_i,
+$$
+où $v_i$ est un bruit gaussien de variance $r_i$.
+
+**Adaptation de la variance en fonction de LOS/NLOS :**
+$$
+r_i = 
+\begin{cases}
+r_{\text{LOS}}, & \text{si } \text{is\_los}[i] = 0, \\
+\lambda\,r_{\text{LOS}}, & \text{si } \text{is\_los}[i] = 1,
+\end{cases}
+$$
+avec $\lambda > 1$ (par exemple, $\lambda = 10$).
+
+**Mise à jour adaptative :**  
+Après avoir calculé l'innovation pour la mesure $i$ :
+$$
+y_i = z_i - h_i(\hat{\mathbf{x}}_{k|k-1}),
+$$
+une estimation provisoire de la variance est obtenue par :
+$$
+r_{i,\text{new}} = \left| y_i^2 - \left[\mathbf{H}\,\mathbf{P}_{k|k-1}\,\mathbf{H}^T\right]_{ii} \right|.
+$$
+Cette valeur est ajustée en fonction du flag NLOS :
+$$
+r_{i,\text{new}} =
+\begin{cases}
+r_{i,\text{new}}, & \text{si } \text{is\_los}[i] = 0, \\
+\lambda\,r_{i,\text{new}}, & \text{si } \text{is\_los}[i] = 1.
+\end{cases}
+$$
+Enfin, une mise à jour lissée est appliquée :
+$$
+r_i \leftarrow \alpha\,r_i + (1-\alpha)\,r_{i,\text{new}},
+$$
+avec $\alpha$ déterminant le degré de lissage.
+
+#### 3.2.2. Mesures IMU
+
+Les mesures IMU fournissent directement les accélérations mesurées :
+$$
+z_{\text{IMU}} = \begin{bmatrix} a_{x,\text{IMU}} \\ a_{y,\text{IMU}} \end{bmatrix}.
+$$
+La fonction de mesure correspondante est :
+$$
+h_{\text{IMU}}(\hat{\mathbf{x}}_{k|k-1}) = \begin{bmatrix} \hat{a}_x \\ \hat{a}_y \end{bmatrix}.
+$$
+La covariance associée est définie par :
+$$
+\mathbf{R}_{\text{IMU}} = \operatorname{diag}\Big(0.1 + 0.05\|a_{\text{IMU}}\|,\; 0.1 + 0.05\|a_{\text{IMU}}\|\Big).
+$$
+
+#### 3.2.3. Mesures ZUPT (Zero-Velocity UPdaTe)
+
+Lorsque l'intensité de l'accélération mesurée est inférieure à un seuil $\text{zupt\_threshold}$, le système est supposé être à vitesse nulle. On impose alors :
+$$
+z_{\text{ZUPT}} = \begin{bmatrix} 0 \\ 0 \end{bmatrix},
+$$
+avec la fonction de mesure prédite :
+$$
+h_{\text{ZUPT}}(\hat{\mathbf{x}}_{k|k-1}) = \begin{bmatrix} \hat{v}_x \\ \hat{v}_y \end{bmatrix},
+$$
+et une covariance très faible :
+$$
+\mathbf{R}_{\text{ZUPT}} = \operatorname{diag}(0.001, 0.001).
+$$
+
+**Fusion des mesures :**  
+Les mesures issues des différents capteurs sont concaténées dans un vecteur unifié :
+$$
+\mathbf{z} = \begin{bmatrix} z_{\text{UWB}} \\ z_{\text{IMU}} \\ z_{\text{ZUPT}} \end{bmatrix},
+$$
+de même que les fonctions de mesure correspondantes :
+$$
+h(\hat{\mathbf{x}}_{k|k-1}) = \begin{bmatrix} h_{\text{UWB}}(\hat{\mathbf{x}}_{k|k-1}) \\ h_{\text{IMU}}(\hat{\mathbf{x}}_{k|k-1}) \\ h_{\text{ZUPT}}(\hat{\mathbf{x}}_{k|k-1}) \end{bmatrix}.
+$$
+La matrice Jacobienne $\mathbf{H}$ et la covariance de mesure $\mathbf{R}$ sont construites en blocs, chacun correspondant aux différents types de mesures.
+
+---
+
+### 3.3. Mise à Jour du Filtre de Kalman Étendu
+
+#### Innovation et Gain de Kalman
+
+L'innovation globale est calculée par :
+$$
+\mathbf{y} = \mathbf{z} - h(\hat{\mathbf{x}}_{k|k-1}),
+$$
+et sa covariance par :
+$$
+\mathbf{S} = \mathbf{H}\,\mathbf{P}_{k|k-1}\,\mathbf{H}^T + \mathbf{R}.
+$$
+Le gain de Kalman est obtenu par :
+$$
+\mathbf{K} = \mathbf{P}_{k|k-1}\,\mathbf{H}^T\,\mathbf{S}^{-1}.
+$$
+
+#### Correction de l'État et de la Covariance
+
+L'état corrigé est mis à jour selon :
+$$
+\hat{\mathbf{x}}_{k} = \hat{\mathbf{x}}_{k|k-1} + \mathbf{K}\,\mathbf{y},
+$$
+et la covariance de l'estimation se met à jour par :
+$$
+\mathbf{P}_{k} = \left(\mathbf{I} - \mathbf{K}\,\mathbf{H}\right)\mathbf{P}_{k|k-1}.
+$$
+
+---
+
+## 4. Conclusion
+
+Le filtre LA-AEKF offre une approche robuste pour la localisation en intégrant intelligemment les mesures UWB et en adaptant la matrice de covariance en fonction des conditions LOS/NLOS. Toutefois, la classification des mesures, avec une précision d'environ 90 %, peut encore laisser des incertitudes dans l'estimation. L'ajout des mesures IMU dans le processus de fusion, couplé à une détection de zéro vitesse (ZUPT), constitue une amélioration significative. Cette intégration permet de compenser les erreurs de classification et d'améliorer la prédiction de l'état, aboutissant à une estimation plus fiable de la position dans des environnements complexes.
+
+Ce rapport a ainsi présenté en détail les avantages du LA-AEKF, la problématique liée aux mesures NLOS, l'idée innovante d'intégrer les mesures IMU, et a finalement établi le modèle mathématique complet de l'approche proposée.
+
 # References:
 > - [1] Taha, M., Berder, O., Courtay, A., & Le Gentil, M. (2025, October). NA-AEKF: A NLOS-Aware Adaptive Extended Kalman Filter for Robust Indoor Localization. In 2025 21th International Conference on Wireless and Mobile Computing, Networking and Communications (WiMob) (pp. 1-6). IEEE. [https://ieeexplore.ieee.org/document/11257468](https://ieeexplore.ieee.org/document/11257468)
 > - [2] Momtaz, M. R., Abolhasan, M., Lipman, J., & Ni, W. (2023). Adaptive Extended Kalman Filter Position Estimation Based on Ultra-Wideband Active-Passive Ranging Protocol. *Sensors*, *23*(5), 2669. https://doi.org/10.3390/s23052669

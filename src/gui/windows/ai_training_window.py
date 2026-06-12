@@ -10,6 +10,7 @@ from PyQt5.QtWidgets import (
 from PyQt5.QtCore import QTimer, Qt
 from PyQt5.QtGui import QPen, QColor, QFont
 import pyqtgraph as pg
+from collections import deque
 
 from src.api.ai_gym_server import AIGymServer
 from src.api.ai_training_facade import AITrainingAPI
@@ -370,14 +371,7 @@ class AITrainingWindow(QMainWindow):
         self.step_reward_plot = create_themed_plot(title="Step Reward", y_label="Reward", x_label="Step")
         self.step_reward_plot.addLegend(offset=(10, 10))
         
-        # ── Row 2, Col 0: Step Energy (µJ) per step ───────────────────────
-        self.step_energy_plot = create_themed_plot(
-            title="Step Energy (µJ)",
-            y_label="Energy (µJ)", x_label="Time (s)"
-        )
-        self.step_energy_plot.addLegend(offset=(10, 10))
-        
-        # ── Row 2, Col 1: Cumulative Energy (µJ) ─────────────────────────
+        # ── Row 2, Col 0: Cumulative Energy (µJ) ─────────────────────────
         self.cumul_energy_plot = create_themed_plot(
             title="Cumulative Energy (µJ)",
             y_label="Energy (µJ)", x_label="Time (s)"
@@ -385,17 +379,18 @@ class AITrainingWindow(QMainWindow):
         self.cumul_energy_plot.addLegend(offset=(10, 10))
         
         # Initialize per-agent metric data and curves
-        self.metric_time_data = []  # shared time axis (seconds)
-        self.per_agent_errors = [[] for _ in range(self.num_agents)]
-        self.per_agent_cumul_rewards = [[] for _ in range(self.num_agents)]
-        self.per_agent_step_rewards = [[] for _ in range(self.num_agents)]
+        MAX_PLOT_POINTS = 2000
+        self.metric_time_data = deque(maxlen=MAX_PLOT_POINTS)  # shared time axis (seconds)
+        self.per_agent_errors = [deque(maxlen=MAX_PLOT_POINTS) for _ in range(self.num_agents)]
+        self.per_agent_cumul_rewards = [deque(maxlen=MAX_PLOT_POINTS) for _ in range(self.num_agents)]
+        self.per_agent_step_rewards = [deque(maxlen=MAX_PLOT_POINTS) for _ in range(self.num_agents)]
         
         # Per-agent technology source history (1=UWB, 2=Both, 3=IMU)
-        self.per_agent_tech_source = [[] for _ in range(self.num_agents)]
+        self.per_agent_tech_source = [deque(maxlen=MAX_PLOT_POINTS) for _ in range(self.num_agents)]
         
         # Per-agent step energy (µJ) and cumulative energy (µJ)
-        self.per_agent_step_energy_uJ = [[] for _ in range(self.num_agents)]
-        self.per_agent_cumul_energy_uJ = [[] for _ in range(self.num_agents)]
+        self.per_agent_step_energy_uJ = [deque(maxlen=MAX_PLOT_POINTS) for _ in range(self.num_agents)]
+        self.per_agent_cumul_energy_uJ = [deque(maxlen=MAX_PLOT_POINTS) for _ in range(self.num_agents)]
         
         # Per-agent step counters for IMU / UWB usage
         self.agent_imu_step_counts = [0] * self.num_agents
@@ -423,7 +418,6 @@ class AITrainingWindow(QMainWindow):
         self.error_curves = []
         self.reward_curves = []
         self.step_reward_curves = []
-        self.step_energy_curves = []
         self.cumul_energy_curves = []
         self.tech_timeline_curves = []
         for i in range(self.num_agents):
@@ -434,7 +428,6 @@ class AITrainingWindow(QMainWindow):
             self.error_curves.append(self.error_plot.plot(pen=pen, name=lbl))
             self.reward_curves.append(self.reward_plot.plot(pen=pen, name=lbl))
             self.step_reward_curves.append(self.step_reward_plot.plot(pen=pen, name=lbl))
-            self.step_energy_curves.append(self.step_energy_plot.plot(pen=pen, name=lbl))
             self.cumul_energy_curves.append(self.cumul_energy_plot.plot(pen=pen, name=lbl))
             
             # Technology timeline: scatter dots colored by source type
@@ -442,15 +435,8 @@ class AITrainingWindow(QMainWindow):
             self.tech_timeline_plot.addItem(tech_scatter)
             self.tech_timeline_curves.append(tech_scatter)
             
-        # Baseline reference lines on the step energy plot (constant horizontal)
         imu_pen = pg.mkPen(QColor(46, 204, 113), width=2, style=Qt.DashLine)
-        self.imu_baseline_energy_curve = self.step_energy_plot.plot(
-            pen=imu_pen, name=f"IMU Only ({self.imu_only_step_energy_uJ:.2f} µJ)"
-        )
         uwb_pen = pg.mkPen(QColor(231, 76, 60), width=2, style=Qt.DashLine)
-        self.uwb_baseline_energy_curve = self.step_energy_plot.plot(
-            pen=uwb_pen, name=f"UWB Always ({self.uwb_only_step_energy_uJ:.2f} µJ)"
-        )
         
         # Baseline reference lines on the cumulative energy plot (linearly growing)
         self.imu_baseline_cumul_energy_curve = self.cumul_energy_plot.plot(
@@ -460,13 +446,12 @@ class AITrainingWindow(QMainWindow):
             pen=uwb_pen, name="UWB Always"
         )
         
-        # Layout: 2×2 grid + step energy and cumulative energy at bottom
+        # Layout: 2×2 grid + cumulative energy taking the whole row at bottom
         metrics_grid.addWidget(self.error_plot, 0, 0)
         metrics_grid.addWidget(self.tech_timeline_plot, 0, 1)
         metrics_grid.addWidget(self.reward_plot, 1, 0)
         metrics_grid.addWidget(self.step_reward_plot, 1, 1)
-        metrics_grid.addWidget(self.step_energy_plot, 2, 0)
-        metrics_grid.addWidget(self.cumul_energy_plot, 2, 1)
+        metrics_grid.addWidget(self.cumul_energy_plot, 2, 0, 1, 2)
         
         # Equal row stretches for top 2 rows, slightly more for energy plots
         metrics_grid.setRowStretch(0, 3)
@@ -483,10 +468,12 @@ class AITrainingWindow(QMainWindow):
         
         # Generate unique colors for each agent
         self.agent_colors = []
+        self.agent_brushes = []
         for i in range(max(1, self.num_agents)):
             hue = int((i / max(1, self.num_agents)) * 360)
             color = QColor.fromHsl(hue, 255, 127) # Full saturation, 50% lightness
             self.agent_colors.append(color)
+            self.agent_brushes.append(pg.mkBrush(color))
             
         # Plot items
         self.anchor_scatter = pg.ScatterPlotItem(size=12, pen=pg.mkPen('b'), brush=pg.mkBrush(0, 0, 255, 120))
@@ -704,10 +691,11 @@ class AITrainingWindow(QMainWindow):
         MAX_LOG_LINES = 5000
         doc = self.console_text.document()
         if doc.blockCount() > MAX_LOG_LINES:
-            cursor = self.console_text.textCursor()
-            cursor.movePosition(cursor.Start)
-            cursor.movePosition(cursor.Down, cursor.KeepAnchor, doc.blockCount() - MAX_LOG_LINES)
-            cursor.removeSelectedText()
+            full_text = self.console_text.toPlainText()
+            lines = full_text.split('\n')
+            keep_lines = lines[-MAX_LOG_LINES:]
+            self.console_text.setPlainText('\n'.join(keep_lines))
+            
         cursor = self.console_text.textCursor()
         cursor.movePosition(cursor.End)
         self.console_text.setTextCursor(cursor)
@@ -923,30 +911,31 @@ class AITrainingWindow(QMainWindow):
             
             all_true_spots.append({'pos': (true_pos[0], true_pos[1])})
             
-            for idx in action_indices:
-                if 0 <= idx < len(self.anchors):
-                    anchor = self.anchors[idx]
-                    
-                    is_los = self.channel_model.check_los_to_anchor(
-                        anchor.position, Position(true_pos[0], true_pos[1])
-                    )
-                    true_distance = np.linalg.norm([
-                        anchor.position.x - true_pos[0],
-                        anchor.position.y - true_pos[1]
-                    ])
-                    try:
-                        dist, _ = self.channel_model.measure_distance(
-                            true_distance=true_distance,
-                            is_los=is_los,
-                            anchor_pos=anchor.position
+            if agent_source.lower() != "imu":
+                for idx in action_indices:
+                    if 0 <= idx < len(self.anchors):
+                        anchor = self.anchors[idx]
+                        
+                        is_los = self.channel_model.check_los_to_anchor(
+                            anchor.position, Position(true_pos[0], true_pos[1])
                         )
-                    except Exception:
-                        dist, _ = self.channel_model.measure_distance(
-                            true_distance=true_distance,
-                            is_los=is_los
-                        )
-                    measurements_list.append(dist)
-                    chosen_anchors.append(anchor)
+                        true_distance = np.linalg.norm([
+                            anchor.position.x - true_pos[0],
+                            anchor.position.y - true_pos[1]
+                        ])
+                        try:
+                            dist, _ = self.channel_model.measure_distance(
+                                true_distance=true_distance,
+                                is_los=is_los,
+                                anchor_pos=anchor.position
+                            )
+                        except Exception:
+                            dist, _ = self.channel_model.measure_distance(
+                                true_distance=true_distance,
+                                is_los=is_los
+                            )
+                        measurements_list.append(dist)
+                        chosen_anchors.append(anchor)
             
             # Compute location for this agent using current algorithm
             # Use the agent_tag which has real IMU data from update_imu()
@@ -1186,7 +1175,7 @@ class AITrainingWindow(QMainWindow):
                 
                 all_est_spots.append({
                     'pos': (est_pos[0], est_pos[1]), 
-                    'brush': pg.mkBrush(self.agent_colors[a_idx])
+                    'brush': self.agent_brushes[a_idx]
                 })
                 
                 # Store estimated position for next step's observation
@@ -1227,9 +1216,6 @@ class AITrainingWindow(QMainWindow):
                 
                 if metrics is not None and "cumulative_rewards" in metrics:
                     self.agent_cumul_rewards[a_idx] = metrics["cumulative_rewards"][a_idx]
-                else:
-                    # Smooth interpolation during micro-steps
-                    self.agent_cumul_rewards[a_idx] += step_reward / self._tau_seconds
                 
                 # Collect per-agent metrics for the plots
                 self.per_agent_errors[a_idx].append(float(error))
@@ -1276,18 +1262,7 @@ class AITrainingWindow(QMainWindow):
         # Shared time axis (use Agent 0's simulation time)
         self.metric_time_data.append(self.agent_sim_times[0])
         
-        # Trim to last 2000 points to prevent plot slowdown
-        MAX_PLOT_POINTS = 2000
-        if len(self.metric_time_data) > MAX_PLOT_POINTS:
-            trim = len(self.metric_time_data) - MAX_PLOT_POINTS
-            self.metric_time_data = self.metric_time_data[trim:]
-            for i in range(self.num_agents):
-                self.per_agent_errors[i] = self.per_agent_errors[i][trim:]
-                self.per_agent_cumul_rewards[i] = self.per_agent_cumul_rewards[i][trim:]
-                self.per_agent_step_rewards[i] = self.per_agent_step_rewards[i][trim:]
-                self.per_agent_tech_source[i] = self.per_agent_tech_source[i][trim:]
-                self.per_agent_step_energy_uJ[i] = self.per_agent_step_energy_uJ[i][trim:]
-                self.per_agent_cumul_energy_uJ[i] = self.per_agent_cumul_energy_uJ[i][trim:]
+        # Deque automatically handles trimming points to MAX_PLOT_POINTS
         
         # ── Throttled plot updates (limit to ~5 FPS) ─────────────────────
         now = _time.monotonic()
@@ -1305,42 +1280,30 @@ class AITrainingWindow(QMainWindow):
             
             # Update all per-agent curves
             for i in range(self.num_agents):
-                self.error_curves[i].setData(self.metric_time_data, self.per_agent_errors[i])
-                self.reward_curves[i].setData(self.metric_time_data, self.per_agent_cumul_rewards[i])
-                self.step_reward_curves[i].setData(self.metric_time_data, self.per_agent_step_rewards[i])
-                self.step_energy_curves[i].setData(self.metric_time_data, self.per_agent_step_energy_uJ[i])
-                self.cumul_energy_curves[i].setData(self.metric_time_data, self.per_agent_cumul_energy_uJ[i])
+                time_list = list(self.metric_time_data)
+                self.error_curves[i].setData(time_list, list(self.per_agent_errors[i]))
+                self.reward_curves[i].setData(time_list, list(self.per_agent_cumul_rewards[i]))
+                self.step_reward_curves[i].setData(time_list, list(self.per_agent_step_rewards[i]))
+                self.cumul_energy_curves[i].setData(time_list, list(self.per_agent_cumul_energy_uJ[i]))
                 
                 # Update technology timeline with colored scatter dots
                 if len(self.per_agent_tech_source[i]) > 0:
-                    time_arr = np.array(self.metric_time_data)
+                    time_arr = np.array(time_list)
                     tech_arr = np.array(self.per_agent_tech_source[i])
-                    # Create color-coded spots: UWB=blue, Both=purple, IMU=green
-                    tech_color_map = {
-                        1: (33, 150, 243, 200),    # UWB - blue
-                        2: (171, 71, 188, 200),     # Both - purple
-                        3: (76, 175, 80, 200),      # IMU - green
-                    }
-                    spots = []
-                    for s_idx in range(len(time_arr)):
-                        c = tech_color_map.get(int(tech_arr[s_idx]), (33, 150, 243, 200))
-                        spots.append({
-                            'pos': (time_arr[s_idx], tech_arr[s_idx]),
-                            'brush': pg.mkBrush(*c),
-                            'size': 6,
-                        })
-                    self.tech_timeline_curves[i].setData(spots)
+                    
+                    if not hasattr(self, '_tech_brushes'):
+                        self._tech_brushes = {
+                            1: pg.mkBrush(33, 150, 243, 200),
+                            2: pg.mkBrush(171, 71, 188, 200),
+                            3: pg.mkBrush(76, 175, 80, 200)
+                        }
+                    
+                    brushes = [self._tech_brushes.get(int(v), self._tech_brushes[1]) for v in tech_arr]
+                    self.tech_timeline_curves[i].setData(x=time_arr, y=tech_arr, symbol='o', symbolSize=6, symbolBrush=brushes)
 
-            # Update baseline energy lines on the step and cumulative energy plots
+            # Update baseline energy lines on the cumulative energy plot
             if len(self.metric_time_data) > 1:
                 x_range = [self.metric_time_data[0], self.metric_time_data[-1]]
-                self.imu_baseline_energy_curve.setData(
-                    x_range, [self.imu_only_step_energy_uJ] * 2
-                )
-                self.uwb_baseline_energy_curve.setData(
-                    x_range, [self.uwb_only_step_energy_uJ] * 2
-                )
-                
                 time_range = np.array(x_range)
                 self.imu_baseline_cumul_energy_curve.setData(
                     time_range, self.imu_only_power_mW * (time_range + self.dt) * 1000.0
@@ -1358,6 +1321,7 @@ class AITrainingWindow(QMainWindow):
         dt = self.dt
         for i in range(self.num_agents):
             self.agent_sim_times[i] += dt
+            
         self.state_sent_for_step = False
 
         # Periodic garbage collection to free accumulated objects

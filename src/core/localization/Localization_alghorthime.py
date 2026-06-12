@@ -365,6 +365,197 @@ class LocalizationAlgorthimes():
             P_upd += np.eye(n) * (1e-9 - min_eig)
 
         return (float(state_upd[0]), float(state_upd[1])), state_upd, P_upd, initialized
+
+    @staticmethod
+    def IMU_assisted_Nlos_aware_aekf(measurements, tag, anchors, state, P, initialized, is_los, 
+                                     alpha=0.3, beta=2.0, nlos_factor=10.0, dt=0.05, zupt_threshold=0.05, R=None):
+        """
+        IMU-Assisted NLOS-Aware EKF (IA-NAEKF)
+        Fuses UWB distances, IMU accelerations, and ZUPT dynamically.
+        """
+        n = 6  # State: [x, y, vx, vy, ax, ay]
+        
+        # Initialize state and covariance
+        if not initialized or state is None or P is None or len(state) != n:
+            state = np.array([
+                float(getattr(getattr(tag, 'position', None), 'x', 0.0)),
+                float(getattr(getattr(tag, 'position', None), 'y', 0.0)),
+                0.0, 0.0,  # velocities
+                0.0, 0.0   # accelerations
+            ], dtype=float)
+            P = np.diag([1.0, 1.0, 0.5, 0.5, 1.0, 1.0]).astype(float)
+            initialized = True
+
+        state = np.asarray(state, dtype=float).reshape(n)
+        P = np.asarray(P, dtype=float).reshape(n, n)
+        
+        # 1. PREDICTION STEP (Constant Acceleration Model)
+        dt2 = dt * dt
+        F = np.array([
+            [1, 0, dt, 0, 0.5*dt2, 0],
+            [0, 1, 0, dt, 0, 0.5*dt2],
+            [0, 0, 1, 0, dt, 0],
+            [0, 0, 0, 1, 0, dt],
+            [0, 0, 0, 0, 1, 0],
+            [0, 0, 0, 0, 0, 1]
+        ], dtype=float)
+        
+        sigma_a = 0.5
+        sigma_j = 0.1
+        Q = np.zeros((n, n), dtype=float)
+        # Pos and vel terms driven by acceleration noise
+        q11 = (dt**4 / 4.0) * sigma_a
+        q33 = (dt**2) * sigma_a
+        Q[0, 0] = q11; Q[1, 1] = q11
+        Q[2, 2] = q33; Q[3, 3] = q33
+        # Accel terms driven by jerk
+        Q[4, 4] = dt * sigma_j; Q[5, 5] = dt * sigma_j
+        
+        # Predict state and covariance
+        state_pred = F @ state
+        P_pred = F @ P @ F.T + Q
+        
+        # IMU Data Blending in prediction
+        ax_meas, ay_meas = 0.0, 0.0
+        imu_active = False
+        if hasattr(tag, 'imu_data') and tag.imu_data is not None:
+            if hasattr(tag.imu_data, 'acc_x') and len(tag.imu_data.acc_x) > 0 and \
+               hasattr(tag.imu_data, 'acc_y') and len(tag.imu_data.acc_y) > 0:
+                ax_meas = float(tag.imu_data.acc_x[-1])
+                ay_meas = float(tag.imu_data.acc_y[-1])
+                imu_active = True
+                
+                # Blending
+                omega = 0.7
+                state_pred[4] = (1.0 - omega) * state_pred[4] + omega * ax_meas
+                state_pred[5] = (1.0 - omega) * state_pred[5] + omega * ay_meas
+
+        # 2. MEASUREMENT UPDATE STEP (Block Matrices)
+        z_blocks = []
+        h_blocks = []
+        H_blocks = []
+        R_blocks = []
+        
+        # --- A. UWB Block ---
+        if measurements is not None and len(measurements) > 0:
+            num_uwb = len(measurements)
+            z_uwb = np.array(measurements, dtype=float)
+            
+            # Predict h_UWB
+            anchor_positions = np.array([[a.position.x, a.position.y] for a in anchors[:num_uwb]])
+            H_uwb, h_uwb = vectorized_jacobian(state_pred[:4], anchor_positions)
+            H_uwb = to_cpu(H_uwb)
+            h_uwb = to_cpu(h_uwb)
+            
+            # Pad H_uwb to 6D (zeros for acceleration)
+            H_uwb_full = np.zeros((num_uwb, n), dtype=float)
+            H_uwb_full[:, :4] = H_uwb
+            
+            # Adapt UWB Variance
+            if R is None or R.shape[0] != num_uwb:
+                R_uwb = np.eye(num_uwb, dtype=float) * 0.1
+            else:
+                R_uwb = R
+                
+            innovation_uwb = z_uwb - h_uwb
+            R_new = np.zeros_like(R_uwb)
+            for i in range(num_uwb):
+                innov_sq = innovation_uwb[i]**2
+                proj_var = float(H_uwb_full[i] @ P_pred @ H_uwb_full[i].T)
+                r_new_val = abs(innov_sq - proj_var)
+                
+                if is_los is not None and len(is_los) > i and is_los[i] == 1:
+                    r_new_val *= nlos_factor
+                
+                # Smooth update
+                R_new[i, i] = alpha * R_uwb[i, i] + (1 - alpha) * r_new_val
+                # Bound R
+                R_new[i, i] = np.clip(R_new[i, i], 0.01, 10.0)
+            
+            R = R_new # Store for next iteration
+            
+            z_blocks.append(z_uwb)
+            h_blocks.append(h_uwb)
+            H_blocks.append(H_uwb_full)
+            R_blocks.append(R_new)
+        
+        # --- B. IMU Block ---
+        if imu_active:
+            z_imu = np.array([ax_meas, ay_meas], dtype=float)
+            h_imu = np.array([state_pred[4], state_pred[5]], dtype=float)
+            H_imu = np.zeros((2, n), dtype=float)
+            H_imu[0, 4] = 1.0; H_imu[1, 5] = 1.0
+            
+            acc_mag = np.sqrt(ax_meas**2 + ay_meas**2)
+            var_imu = 0.1 + 0.05 * acc_mag
+            R_imu = np.diag([var_imu, var_imu])
+            
+            z_blocks.append(z_imu)
+            h_blocks.append(h_imu)
+            H_blocks.append(H_imu)
+            R_blocks.append(R_imu)
+            
+            # --- C. ZUPT Block ---
+            if acc_mag < zupt_threshold:
+                gyro_mag = 0.0
+                if hasattr(tag.imu_data, 'gyro_x') and len(tag.imu_data.gyro_x) > 0:
+                    gx, gy, gz = tag.imu_data.gyro_x[-1], tag.imu_data.gyro_y[-1], tag.imu_data.gyro_z[-1]
+                    gyro_mag = np.sqrt(gx**2 + gy**2 + gz**2)
+                
+                if gyro_mag < 0.1:
+                    z_zupt = np.array([0.0, 0.0], dtype=float)
+                    h_zupt = np.array([state_pred[2], state_pred[3]], dtype=float)
+                    H_zupt = np.zeros((2, n), dtype=float)
+                    H_zupt[0, 2] = 1.0; H_zupt[1, 3] = 1.0
+                    R_zupt = np.diag([0.001, 0.001])
+                    
+                    z_blocks.append(z_zupt)
+                    h_blocks.append(h_zupt)
+                    H_blocks.append(H_zupt)
+                    R_blocks.append(R_zupt)
+
+        # 3. FUSION & UPDATE
+        if len(z_blocks) > 0:
+            z_all = np.concatenate(z_blocks)
+            h_all = np.concatenate(h_blocks)
+            H_all = np.vstack(H_blocks)
+            
+            # Build block diagonal R
+            total_dim = sum(R_b.shape[0] for R_b in R_blocks)
+            R_all = np.zeros((total_dim, total_dim), dtype=float)
+            idx = 0
+            for R_b in R_blocks:
+                dim = R_b.shape[0]
+                R_all[idx:idx+dim, idx:idx+dim] = R_b
+                idx += dim
+                
+            innovation = z_all - h_all
+            
+            S = H_all @ P_pred @ H_all.T + R_all
+            S = (S + S.T) / 2.0
+            try:
+                S_inv = np.linalg.inv(S)
+            except np.linalg.LinAlgError:
+                jitter = max(1e-6, 1e-3 * np.trace(S) / max(S.shape[0], 1))
+                S_inv = np.linalg.inv(S + np.eye(S.shape[0]) * jitter)
+                
+            K = P_pred @ H_all.T @ S_inv
+            
+            state_upd = state_pred + K @ innovation
+            P_upd = (np.eye(n) - K @ H_all) @ P_pred
+            P_upd = (P_upd + P_upd.T) / 2.0
+            
+            try:
+                min_eig = float(np.min(np.real(np.linalg.eigvals(P_upd))))
+            except np.linalg.LinAlgError:
+                min_eig = 0.0
+            if min_eig < 1e-9:
+                P_upd += np.eye(n) * (1e-9 - min_eig)
+        else:
+            state_upd = state_pred
+            P_upd = P_pred
+            
+        return (float(state_upd[0]), float(state_upd[1])), state_upd, P_upd, initialized, R
        
     @staticmethod
     def get_algorithm_by_name(algorithm_name, **kwargs):

@@ -9,6 +9,7 @@ class Alghortimes_doc():
             "Trilateration": LocalizationAlgorthimes.trilateration,
             "NLOS-Aware AEKF": LocalizationAlgorthimes.Nlos_aware_aekf,
             "IMU Only": LocalizationAlgorthimes.imu_only_filter,
+            "IMU assisted NLOS-Aware AEKF": LocalizationAlgorthimes.IMU_assisted_Nlos_aware_aekf,
         }
         
         # Load custom algorithms only once
