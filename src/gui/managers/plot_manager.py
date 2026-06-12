@@ -1,28 +1,25 @@
 """
 Plot Manager Module
-Handles all plot creation and visualization updates with parallel computing optimization
+Handles all plot creation and visualization updates.
+Optimized for performance: reuses Qt objects instead of recreating each frame,
+and accepts pre-computed LOS results from the simulation manager's frame cache.
 """
 import pyqtgraph as pg
 import numpy as np
 from PyQt5.QtCore import Qt
 from collections import deque
-from concurrent.futures import ThreadPoolExecutor
 from src.gui.theme import COLORS
 from src.gui.panels.Plots import LocalizationErrorPlot
 
 
 class PlotManager:
-    """Manages all plotting operations for the localization app with parallel LOS checks"""
+    """Manages all plotting operations for the localization app.
     
-    # Class-level thread pool for parallel operations
-    _executor = None
-    
-    @classmethod
-    def get_executor(cls):
-        """Get or create the thread pool executor"""
-        if cls._executor is None:
-            cls._executor = ThreadPoolExecutor(max_workers=4)
-        return cls._executor
+    Performance optimizations:
+    - Anchor ScatterPlotItem / TextItem objects are reused across frames (only colors update)
+    - Measurement line PlotDataItem objects are reused (only data/pen update)
+    - LOS conditions are received from the simulation manager's per-frame cache
+    """
     
     def __init__(self, parent_widget):
         self.parent = parent_widget
@@ -37,7 +34,16 @@ class PlotManager:
         # Path visibility state
         self.paths_visible = True
         self.lines_visible = True
-        self.use_parallel = True  # Enable/disable parallel processing
+        
+        # --- Object reuse caches for anchor visualization ---
+        # Maps anchor_id -> {'point': ScatterPlotItem, 'text': TextItem}
+        self._anchor_visuals = {}
+        # Set of anchor IDs from last frame (to detect add/remove)
+        self._last_anchor_ids = set()
+        
+        # --- Object reuse cache for measurement lines ---
+        # Maps anchor_id -> PlotDataItem
+        self._measurement_lines = {}
         
     def create_position_plot(self):
         """Create and configure the main position plot"""
@@ -134,120 +140,130 @@ class PlotManager:
         origin_text.setPos(0, 0)
         position_plot.addItem(origin_text)
     
-    def _check_single_los(self, anchor, tag_position, channel_conditions):
-        """Check LOS condition for a single anchor (used for parallel execution)"""
-        try:
-            is_los = channel_conditions.check_los_to_anchor(anchor.position, tag_position)
-            return (anchor, is_los)
-        except Exception as e:
-            print(f"Error checking LOS for anchor {anchor.id}: {e}")
-            return (anchor, True)  # Default to LOS on error
-    
-    def _get_los_conditions_parallel(self, anchors, tag_position, channel_conditions):
-        """Get LOS conditions for all anchors in parallel"""
-        executor = self.get_executor()
-        futures = []
-        for anchor in anchors:
-            future = executor.submit(
-                self._check_single_los, 
-                anchor, 
-                tag_position, 
-                channel_conditions
-            )
-            futures.append(future)
+    def update_anchor_visualization(self, position_plot, anchors, channel_conditions, tag, los_results=None):
+        """Update anchor visualization with proper LOS/NLOS coloring.
         
-        results = []
-        for future in futures:
-            try:
-                result = future.result(timeout=0.5)  # 500ms timeout
-                results.append(result)
-            except Exception as e:
-                print(f"Parallel LOS check error: {e}")
-                results.append((anchors[len(results)], True))  # Default to LOS
+        Performance: reuses existing ScatterPlotItem and TextItem objects.
+        Only creates/destroys items when anchors are added or removed.
         
-        return results
-    
-    def update_anchor_visualization(self, position_plot, anchors, channel_conditions, tag):
-        """Update anchor visualization with proper LOS/NLOS coloring using parallel LOS checks"""
-        # Clear existing anchor points and labels
-        for point in self.anchor_points:
-            position_plot.removeItem(point)
-        self.anchor_points.clear()
+        Args:
+            position_plot: The pyqtgraph PlotWidget
+            anchors: List of anchor objects
+            channel_conditions: Channel conditions (fallback for LOS if no cache)
+            tag: Tag object
+            los_results: Optional pre-computed list of (anchor, is_los) tuples from frame cache.
+                        If None, LOS is computed here (backward compatibility).
+        """
+        current_anchor_ids = {a.id for a in anchors}
         
-        # Remove existing text items
-        for item in position_plot.items():
-            if isinstance(item, pg.TextItem):
-                position_plot.removeItem(item)
+        # Detect if anchor set changed (additions or removals)
+        if current_anchor_ids != self._last_anchor_ids:
+            # Remove visuals for anchors that no longer exist
+            removed_ids = self._last_anchor_ids - current_anchor_ids
+            for aid in removed_ids:
+                if aid in self._anchor_visuals:
+                    vis = self._anchor_visuals.pop(aid)
+                    position_plot.removeItem(vis['point'])
+                    position_plot.removeItem(vis['text'])
+            
+            # Create visuals for new anchors
+            added_ids = current_anchor_ids - self._last_anchor_ids
+            for anchor in anchors:
+                if anchor.id in added_ids:
+                    color = pg.mkColor('#00ff00')
+                    point = pg.ScatterPlotItem(
+                        [anchor.position.x], [anchor.position.y],
+                        symbol='s', size=20,
+                        pen=pg.mkPen(color, width=2),
+                        brush=color,
+                        name=f"Anchor {anchor.id}"
+                    )
+                    position_plot.addItem(point)
+                    
+                    text = pg.TextItem(
+                        f"{anchor.id}\n({anchor.position.x:.1f}, {anchor.position.y:.1f})",
+                        color='w', anchor=(0.5, 0)
+                    )
+                    text.setPos(anchor.position.x, anchor.position.y + 0.5)
+                    position_plot.addItem(text)
+                    
+                    self._anchor_visuals[anchor.id] = {'point': point, 'text': text}
+            
+            self._last_anchor_ids = current_anchor_ids
         
-        # Recreate coordinate labels
-        self.add_coordinate_labels(position_plot)
+        # If no pre-computed LOS, compute here (backward compatibility fallback)
+        if los_results is None:
+            los_results = [(a, channel_conditions.check_los_to_anchor(a.position, tag.position))
+                          for a in anchors]
         
-        # Get LOS conditions - use parallel processing for 3+ anchors
-        if self.use_parallel and len(anchors) >= 3:
-            los_results = self._get_los_conditions_parallel(anchors, tag.position, channel_conditions)
-        else:
-            los_results = [(anchor, channel_conditions.check_los_to_anchor(anchor.position, tag.position)) 
-                          for anchor in anchors]
-        
-        # Create new anchor points with labels
+        # Update colors and positions for ALL anchors (fast — no alloc/dealloc)
         for anchor, is_los in los_results:
-            # Set color based on LOS condition
+            if anchor.id not in self._anchor_visuals:
+                continue
+            vis = self._anchor_visuals[anchor.id]
+            
             color = pg.mkColor('#00ff00') if is_los else pg.mkColor('#ff0000')
+            vis['point'].setBrush(color)
+            vis['point'].setPen(pg.mkPen(color, width=2))
+            vis['point'].setData([anchor.position.x], [anchor.position.y])
             
-            # Plot anchor point
-            point = pg.ScatterPlotItem(
-                [anchor.position.x], [anchor.position.y],
-                symbol='s',
-                size=20,
-                pen=pg.mkPen(color, width=2),
-                brush=color,
-                name=f"Anchor {anchor.id}"
-            )
-            position_plot.addItem(point)
-            self.anchor_points.append(point)
-            
-            # Add anchor ID label with position
-            text = pg.TextItem(
-                f"{anchor.id}\n({anchor.position.x:.1f}, {anchor.position.y:.1f})",
-                color='w',
-                anchor=(0.5, 0)
-            )
-            text.setPos(anchor.position.x, anchor.position.y + 0.5)
-            position_plot.addItem(text)
+            vis['text'].setText(f"{anchor.id}\n({anchor.position.x:.1f}, {anchor.position.y:.1f})")
+            vis['text'].setPos(anchor.position.x, anchor.position.y + 0.5)
     
-    def update_measurement_lines(self, position_plot, anchors, tag, channel_conditions):
-        """Draw measurement lines between anchors and tag with parallel LOS checks"""
-        # Clear old lines
-        for item in position_plot.items():
-            if isinstance(item, pg.PlotDataItem) and hasattr(item, 'measurement_line'):
-                position_plot.removeItem(item)
+    def update_measurement_lines(self, position_plot, anchors, tag, channel_conditions, los_results=None):
+        """Draw measurement lines between anchors and tag.
         
-        # Draw new lines only if visible
+        Performance: reuses existing PlotDataItem objects instead of destroying/recreating.
+        
+        Args:
+            position_plot: The pyqtgraph PlotWidget
+            anchors: List of anchor objects
+            tag: Tag object
+            channel_conditions: Channel conditions (fallback for LOS)
+            los_results: Optional pre-computed list of (anchor, is_los) tuples from frame cache.
+        """
+        current_anchor_ids = {a.id for a in anchors}
+        
+        # Remove lines for anchors that no longer exist
+        removed_ids = set(self._measurement_lines.keys()) - current_anchor_ids
+        for aid in removed_ids:
+            line = self._measurement_lines.pop(aid)
+            position_plot.removeItem(line)
+        
+        # Hide all lines if not visible
         if not self.lines_visible:
+            for line in self._measurement_lines.values():
+                line.setVisible(False)
             return
         
-        # Get LOS conditions - use parallel processing for 3+ anchors
-        if self.use_parallel and len(anchors) >= 3:
-            los_results = self._get_los_conditions_parallel(anchors, tag.position, channel_conditions)
-        else:
-            los_results = [(anchor, channel_conditions.check_los_to_anchor(anchor.position, tag.position)) 
-                          for anchor in anchors]
+        # If no pre-computed LOS, compute here (backward compatibility fallback)
+        if los_results is None:
+            los_results = [(a, channel_conditions.check_los_to_anchor(a.position, tag.position))
+                          for a in anchors]
         
         for anchor, is_los in los_results:
             try:
-                # Set line color based on LOS condition
-                if is_los:
-                    pen = pg.mkPen('w', width=1, style=Qt.DashLine)
-                else:
-                    pen = pg.mkPen('r', width=1, style=Qt.DashLine)
+                pen = pg.mkPen('w', width=1, style=Qt.DashLine) if is_los else pg.mkPen('r', width=1, style=Qt.DashLine)
                 
-                line = pg.PlotDataItem(
-                    [anchor.position.x, tag.position.x],
-                    [anchor.position.y, tag.position.y],
-                    pen=pen
-                )
-                line.measurement_line = True
-                position_plot.addItem(line)
+                if anchor.id in self._measurement_lines:
+                    # Reuse existing line — just update data and pen
+                    line = self._measurement_lines[anchor.id]
+                    line.setData(
+                        [anchor.position.x, tag.position.x],
+                        [anchor.position.y, tag.position.y]
+                    )
+                    line.setPen(pen)
+                    line.setVisible(True)
+                else:
+                    # Create new line for this anchor
+                    line = pg.PlotDataItem(
+                        [anchor.position.x, tag.position.x],
+                        [anchor.position.y, tag.position.y],
+                        pen=pen
+                    )
+                    line.measurement_line = True
+                    position_plot.addItem(line)
+                    self._measurement_lines[anchor.id] = line
             except Exception as e:
                 print(f"Error drawing measurement line: {e}")
     

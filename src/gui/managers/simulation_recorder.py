@@ -67,7 +67,8 @@ class SimulationRecorder:
                        error: float,
                        anchors: list = None,
                        channel_conditions = None,
-                       measurements: list = None) -> bool:
+                       measurements: list = None,
+                       los_cache: dict = None) -> bool:
         """
         Record a simulation snapshot.
         
@@ -77,8 +78,10 @@ class SimulationRecorder:
             estimated_position: (x, y) of estimated position
             error: Current localization error
             anchors: List of anchor objects (optional)
-            channel_conditions: Channel conditions for LOS state (optional)
+            channel_conditions: Channel conditions for LOS state (optional, unused if los_cache provided)
             measurements: List of measured distances corresponding to anchors (optional)
+            los_cache: Pre-computed dict {anchor_id: bool} from the frame LOS cache (optional).
+                      If provided, avoids redundant LOS recomputation.
             
         Returns:
             True if snapshot was recorded, False if skipped due to interval
@@ -110,8 +113,10 @@ class SimulationRecorder:
                     'id': anchor.id,
                     'position': (anchor.position.x, anchor.position.y)
                 }
-                # Add LOS state if channel conditions available
-                if channel_conditions and hasattr(anchor, 'position'):
+                # Use cached LOS data if available (avoids redundant recomputation)
+                if los_cache is not None and anchor.id in los_cache:
+                    anchor_state['is_los'] = los_cache[anchor.id]
+                elif channel_conditions and hasattr(anchor, 'position'):
                     try:
                         from src.core.uwb.uwb_devices import Position
                         tag_pos = Position(tag_position[0], tag_position[1])

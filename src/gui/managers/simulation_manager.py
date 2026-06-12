@@ -4,7 +4,6 @@ Handles simulation state and update logic with parallel computing optimization
 """
 import numpy as np
 import time
-from concurrent.futures import ThreadPoolExecutor
 from src.core.motion import MotionController
 from src.core.localization import LocalizationAlgorthimes, Alghortimes_doc
 from src.core.localization.base_algorithm import BaseLocalizationAlgorithm, AlgorithmInput, AlgorithmOutput
@@ -22,25 +21,8 @@ logger = logging.getLogger(__name__)
 
 
 class SimulationManager:
-    """Manages simulation state and updates with parallel computing optimization"""
+    """Manages simulation state and updates with GPU-accelerated optimization"""
     
-    # Class-level thread pool for parallel measurements
-    _executor = None
-    _max_workers = 4
-    
-    @classmethod
-    def get_executor(cls):
-        """Get or create the thread pool executor"""
-        if cls._executor is None:
-            cls._executor = ThreadPoolExecutor(max_workers=cls._max_workers)
-        return cls._executor
-    
-    @classmethod
-    def shutdown_executor(cls):
-        """Shutdown the thread pool executor"""
-        if cls._executor is not None:
-            cls._executor.shutdown(wait=False)
-            cls._executor = None
     
     def __init__(self, parent):
         self.parent = parent
@@ -71,11 +53,88 @@ class SimulationManager:
         self._consecutive_measurement_failures = 0
         self._MAX_CONSECUTIVE_FAILURES = 10
         
+        # --- Performance caches (rebuilt each frame) ---
+        # Per-frame LOS cache: dict mapping anchor_id -> bool (True=LOS)
+        self._frame_los_cache = {}
+        # Anchor position array cache (rebuilt when anchor count changes)
+        self._anchor_pos_array = None
+        self._anchor_pos_count = -1
+        # Frame counter for rate-limited updates
+        self._frame_count = 0
+        
+    # --- Cached anchor position helpers ---
+    
+    def _get_anchor_pos_array(self):
+        """Get cached (N, 2) anchor position array. Rebuilt only when anchor count changes."""
+        anchors = self.parent.anchors
+        n = len(anchors)
+        if n != self._anchor_pos_count or self._anchor_pos_array is None:
+            self._anchor_pos_array = np.array(
+                [[a.position.x, a.position.y] for a in anchors], dtype=np.float64
+            )
+            self._anchor_pos_count = n
+        else:
+            # Update in-place for anchors that may have moved (rare but possible)
+            for i, a in enumerate(anchors):
+                self._anchor_pos_array[i, 0] = a.position.x
+                self._anchor_pos_array[i, 1] = a.position.y
+        return self._anchor_pos_array
+    
+    def _compute_frame_los(self):
+        """
+        Compute LOS conditions for ALL anchors once per frame.
+        Uses GPU batch check when available, sequential fallback otherwise.
+        Stores results in self._frame_los_cache as {anchor_id: bool}.
+        Returns list of (anchor, is_los) tuples for consumers.
+        """
+        anchors = self.parent.anchors
+        tag_pos = self.parent.tag.position
+        channel = self.parent.channel_conditions
+        
+        if len(anchors) == 0:
+            self._frame_los_cache = {}
+            return []
+        
+        # Update moving zones once
+        import time as _time
+        current_time = _time.time()
+        for zone in channel.moving_nlos_zones:
+            zone.update_position(current_time)
+        
+        anchor_pos_array = self._get_anchor_pos_array()
+        
+        # GPU batch path (preferred)
+        if gpu_manager.available and len(anchors) >= 2:
+            from src.core.parallel.geometry_kernels import batch_los_check_gpu
+            is_los_array = batch_los_check_gpu(
+                anchor_positions=anchor_pos_array,
+                tag_position=(tag_pos.x, tag_pos.y),
+                nlos_zones=channel.nlos_zones,
+                moving_nlos_zones=channel.moving_nlos_zones
+            )
+        else:
+            # Sequential fallback
+            is_los_array = np.array([
+                channel.check_los_condition(a.position, tag_pos)
+                for a in anchors
+            ], dtype=bool)
+        
+        # Build cache dict and result list
+        self._frame_los_cache = {}
+        results = []
+        for i, anchor in enumerate(anchors):
+            is_los = bool(is_los_array[i])
+            self._frame_los_cache[anchor.id] = is_los
+            results.append((anchor, is_los))
+        
+        return results
+    
     def update_simulation(self):
         """Main simulation update loop"""
         try:
             if not self.is_paused and not self.simulation_ended:
                 self.simulation_time += self.parent.dt
+                self._frame_count += 1
                 
                 # Check if duration limit reached
                 if self.max_duration is not None and self.simulation_time >= self.max_duration:
@@ -106,19 +165,23 @@ class SimulationManager:
                         details={"x": self.parent.tag.position.x, "y": self.parent.tag.position.y},
                     )
                 
-                # Update anchor visualization
+                # ---- PERFORMANCE: Compute LOS once per frame ----
+                frame_los_results = self._compute_frame_los()
+                
+                # Update anchor visualization (pass cached LOS)
                 self.parent.plot_manager.update_anchor_visualization(
                     self.parent.position_plot,
                     self.parent.anchors,
                     self.parent.channel_conditions,
-                    self.parent.tag
+                    self.parent.tag,
+                    los_results=frame_los_results
                 )
                 
                 # Update moving NLOS zones visualization
                 if hasattr(self.parent, 'nlos_manager'):
                     self.parent.nlos_manager.update_moving_visualizations()
                 
-                # Get measurements
+                # Get measurements (uses cached LOS)
                 measurements, is_los, valid = self.get_measurements()
                 
                 if not valid:
@@ -189,7 +252,8 @@ class SimulationManager:
                     error=error,
                     anchors=self.parent.anchors,
                     channel_conditions=self.parent.channel_conditions,
-                    measurements=measurements
+                    measurements=measurements,
+                    los_cache=self._frame_los_cache
                 )
                 
                 # Update elapsed time display if available
@@ -203,8 +267,8 @@ class SimulationManager:
                     self.parent.timeline_widget.set_time_range(0, max_time)
                     self.parent.timeline_widget.set_current_time(self.simulation_time, emit_signal=False)
                 
-                # Update visualizations
-                self.update_visualizations(estimated_pos, error, measurements)
+                # Update visualizations (pass cached LOS)
+                self.update_visualizations(estimated_pos, error, measurements, frame_los_results)
                 
                 # --- Dynamic Energy Calculation ---
                 if hasattr(self.parent, 'energy_calculator'):
@@ -230,7 +294,6 @@ class SimulationManager:
                         self.parent.update_energy_displays()
                 
                 # Update GPU status panel rate-limited (every 20 frames)
-                self._frame_count = getattr(self, '_frame_count', 0) + 1
                 if self._frame_count % 20 == 0:
                     if hasattr(self.parent, 'gpu_status_lbl') and self.parent.gpu_status_lbl:
                         self.parent.gpu_status_lbl.setText(gpu_manager.get_status_string())
@@ -358,32 +421,40 @@ class SimulationManager:
     
     def _measure_single_anchor(self, anchor):
         """
-        Measure distance to a single anchor (used for parallel execution).
+        Measure distance to a single anchor.
+        Uses the per-frame LOS cache to avoid redundant LOS checks.
         
         Returns:
             tuple: (anchor_id, distance, is_los, true_distance, ranging_result) or None on error
         """
         try:
-            # Update channel conditions for this anchor
-            self.parent.channel_conditions.update_los_condition(
-                anchor.position, self.parent.tag.position)
+            # Use cached LOS condition (already computed once this frame)
+            is_los_cached = self._frame_los_cache.get(anchor.id, True)
+            
+            # Set channel conditions based on cached LOS
+            channel = self.parent.channel_conditions
+            if is_los_cached:
+                channel.is_los = True
+                channel.current_path_loss_params = channel.los_path_loss_params
+                channel.current_sv_params = channel.los_sv_params
+                channel.current_noise_factor = 1.0
+                channel.current_error_bias = 0.0
+            else:
+                channel.update_los_condition(anchor.position, self.parent.tag.position)
+            
+            channel._current_anchor_pos = anchor.position
             
             # Get measurement
-            # Expecting 3 values now: distance, logs, ranging_result
             distance, messages, ranging_result = self.parent.tag.measure_distance_with_logs(
-                anchor, self.parent.channel_conditions, self.simulation_time, "SS-TWR")
+                anchor, channel, self.simulation_time, "SS-TWR")
             
             if not np.isfinite(distance) or distance < 0:
                 return None
             
-            # Check LOS condition
-            is_los_test = self.parent.channel_conditions.check_los_to_anchor(
-                anchor.position, self.parent.tag.position)
-            
             # Calculate true distance
             true_distance = anchor.position.distance_to(self.parent.tag.position)
             
-            return (anchor.id, distance, is_los_test, true_distance, ranging_result)
+            return (anchor.id, distance, is_los_cached, true_distance, ranging_result)
         except Exception as e:
             print(f"Error measuring anchor {anchor.id}: {e}")
             return None
@@ -391,7 +462,8 @@ class SimulationManager:
     def get_measurements(self):
         """
         Get distance measurements from all anchors.
-        Uses parallel processing when multiple anchors are present.
+        Uses GPU batch processing when available, sequential otherwise.
+        The per-frame LOS cache is used to avoid redundant LOS checks.
         """
         measurements = []
         is_los = []
@@ -403,11 +475,9 @@ class SimulationManager:
         if n_anchors == 0:
             return measurements, is_los, False
         
-        # Use GPU batch processing when available, else parallel/sequential
+        # Use GPU batch processing when available, else sequential
         if gpu_manager.available and n_anchors >= 2:
             results = self._get_measurements_gpu_batch()
-        elif self.use_parallel and n_anchors >= 3:
-            results = self._get_measurements_parallel()
         else:
             results = self._get_measurements_sequential()
         
@@ -439,54 +509,35 @@ class SimulationManager:
         return measurements, is_los, valid_measurements
     
     def _get_measurements_sequential(self):
-        """Get measurements sequentially (for small number of anchors)"""
+        """Get measurements sequentially"""
         results = []
         for anchor in self.parent.anchors:
             result = self._measure_single_anchor(anchor)
             results.append(result)
         return results
     
-    def _get_measurements_parallel(self):
-        """Get measurements in parallel using thread pool"""
-        executor = self.get_executor()
-        futures = [executor.submit(self._measure_single_anchor, anchor) 
-                   for anchor in self.parent.anchors]
-        
-        # Collect results in order
-        results = []
-        for future in futures:
-            try:
-                result = future.result(timeout=1.0)  # 1 second timeout
-                results.append(result)
-            except Exception as e:
-                logger.warning(f"Parallel measurement error: {e}")
-                results.append(None)
-        
-        return results
-    
     def _get_measurements_gpu_batch(self):
         """
         Get measurements using GPU batch processing.
-        All anchors are measured in one batched GPU call instead of per-anchor.
+        Uses the per-frame LOS cache and cached anchor position array.
         """
         try:
             anchors = self.parent.anchors
             tag_pos = self.parent.tag.position
             channel = self.parent.channel_conditions
             
-            # 1. Compute all LOS conditions in one pass using GPU-accelerated batch check
-            anchor_positions_array = np.array([
-                [a.position.x, a.position.y] for a in anchors
-            ], dtype=np.float64)
-            is_los_array = channel.batch_update_los_conditions(anchor_positions_array, tag_pos)
+            # 1. Use cached LOS results (already computed this frame)
+            is_los_array = np.array([
+                self._frame_los_cache.get(a.id, True) for a in anchors
+            ], dtype=bool)
             
             # 2. Update channel conditions with first anchor (they share model params)
             channel.update_los_condition(anchors[0].position, tag_pos)
             
-            # 3. Compute true distances vectorized
-            true_distances = np.array([
-                a.position.distance_to(tag_pos) for a in anchors
-            ])
+            # 3. Compute true distances vectorized using cached anchor positions
+            anchor_pos_array = self._get_anchor_pos_array()
+            tag_xy = np.array([tag_pos.x, tag_pos.y])
+            true_distances = np.sqrt(np.sum((anchor_pos_array - tag_xy) ** 2, axis=1))
             
             # 4. Batch measurement through GPU pipeline
             ranging_results = channel.measure_distance_batch(
@@ -746,7 +797,7 @@ class SimulationManager:
         # Fallback to trilateration
         return LocalizationAlgorthimes.trilateration(measurements, self.parent.anchors)
     
-    def update_visualizations(self, estimated_pos, error, measurements):
+    def update_visualizations(self, estimated_pos, error, measurements, frame_los_results=None):
         """Update all visualization elements"""
         # Update plot items
         self.parent.plot_items['tag_point'].setData(
@@ -760,13 +811,14 @@ class SimulationManager:
             self.parent.error_plot_handler.update_error(
                 self.simulation_time, error, ma_window)
         
-        # Draw measurement lines
+        # Draw measurement lines (pass cached LOS to avoid recomputation)
         self.parent.plot_manager.update_measurement_lines(
             self.parent.position_plot, self.parent.anchors,
-            self.parent.tag, self.parent.channel_conditions)
+            self.parent.tag, self.parent.channel_conditions,
+            los_results=frame_los_results)
         
-        # Update status
-        if np.isfinite(error):
+        # Update status (rate-limited to every 10 frames)
+        if np.isfinite(error) and self._frame_count % 10 == 0:
             self.update_status(error)
         
         # Update trajectory histories
@@ -789,7 +841,7 @@ class SimulationManager:
             scrollbar.setValue(scrollbar.maximum())
     
     def generate_status_html(self, error):
-        """Generate HTML for status display"""
+        """Generate HTML for status display. Uses cached LOS data to avoid recomputation."""
         status_html = """
         <style>
             .section {
@@ -837,10 +889,8 @@ class SimulationManager:
         status_html += f'<div class="value-item"><span class="label">Shadow STD:</span> <span class="value">{self.parent.channel_conditions.los_path_loss_params.shadow_fading_std:.1f} dB</span></div>'
         status_html += '</div>'
         
-        # Anchor status
-        nlos_count = sum(1 for anchor in self.parent.anchors 
-                        if not self.parent.channel_conditions.check_los_to_anchor(
-                            anchor.position, self.parent.tag.position))
+        # Anchor status — use cached LOS data (no recomputation!)
+        nlos_count = sum(1 for is_los in self._frame_los_cache.values() if not is_los)
         
         status_html += '<div class="section">'
         status_html += '<div class="section-title">📍 Anchor Status</div>'
