@@ -4,8 +4,15 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>PULSE Simulator - AI Training Environment</title>
-    <!-- Fonts managed in CSS via @import -->
+    <meta name="description" content="Complete guide to the PULSE AI Training Environment: reinforcement learning for indoor localization, RL training pipeline, reward mechanisms, offline data collection, and integration with PyTorch and Stable Baselines.">
+    <link rel="icon" type="image/x-icon" href="../assets/logo.ico">
     <link rel="stylesheet" href="styles.css">
+
+    <!-- Mermaid for diagrams -->
+    <script type="module">
+        import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs';
+        mermaid.initialize({ startOnLoad: true, theme: 'neutral', themeVariables: { fontSize: '14px' } });
+    </script>
 </head>
 <body>
 
@@ -26,11 +33,13 @@
         </div>
         <ul class="nav-links">
             <li><a href="../index.html">Introduction</a></li>
-            <li><a href="getting_started.html">Getting Started</a></li>
+            <li><a href="quickstart.html">Quick Start</a></li>
             <li><a href="interface.html">User Guide</a></li>
+            <li><a href="architecture.html">Architecture</a></li>
             <li><a href="simulation.html">Technical Reference</a></li>
+            <li><a href="ai_training.html" class="active">AI Training</a></li>
+            <li><a href="api_reference.html">API Reference</a></li>
             <li><a href="advanced.html">Developer Guide</a></li>
-            <li><a href="ai_training.html" class="active">AI Training Environment</a></li>
             <li><a href="researchers.html">Researchers</a></li>
             <li><a href="license.html">License</a></li>
         </ul>
@@ -49,76 +58,328 @@
     <main class="content-wrapper">
         <div class="content">
             
-            <section id="ai-training-env" class="doc-section">
+            <section id="ai-training" class="doc-section">
                 <h1>AI Training Environment</h1>
-                <p class="lead">Integrate Reinforcement Learning agents and collect bulk simulation data.</p>
+                <p class="lead">Train Reinforcement Learning agents and collect bulk simulation data for AI-powered indoor localization research.</p>
                 <hr>
 
-                <h3>Architecture Overview</h3>
-                <p>The PULSE simulator provides a dedicated AI training environment with a clear separation between the <strong>main simulation</strong> and <strong>AI training logic</strong>. The architecture uses a TCP/IP socket for communication between the simulator and external RL agents, plus a programmatic API for configuration and data retrieval.</p>
-
-                <div style="text-align: center; margin: 2rem 0;">
-                    <img src="../docs/assets/ai_workflow.png" alt="AI Training Environment Architecture" style="max-width: 100%; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.1);"/>
+                <!-- TOC -->
+                <div class="info-box" style="margin-bottom: 2rem;">
+                    <h3>On This Page</h3>
+                    <ul style="margin-bottom: 0;">
+                        <li><a href="#overview">Overview & Architecture</a></li>
+                        <li><a href="#rl-training">Reinforcement Learning Training</a></li>
+                        <li><a href="#rl-pipeline">RL Pipeline Step-by-Step</a></li>
+                        <li><a href="#observation">Observation & Action Spaces</a></li>
+                        <li><a href="#offline">Offline Data Collection</a></li>
+                        <li><a href="#setup">Setup & Training Guide</a></li>
+                    </ul>
                 </div>
 
-                <h3>Online AI Training Client</h3>
-                <p>The <code>external_ai_client</code> project folder contains the files needed to train a Reinforcement Learning agent (using OpenAI Gym / Gymnasium and PyTorch) that interacts with the PULSE Simulator.</p>
+                <!-- ====== 1. OVERVIEW ====== -->
+                <h2 id="overview">Overview & Architecture</h2>
+                <p>PULSE provides a dedicated AI training environment with a clear separation between the <strong>main simulation</strong> and <strong>AI training logic</strong>. This design allows researchers to train AI agents without interfering with the simulation engine.</p>
 
-                <div class="step">
-                    <h4>1. The Server (Inside PULSE Simulator)</h4>
-                    <p>We added a custom algorithm called <code>AI Gym Server (Port 5555)</code> directly into the simulator's code. When you select this algorithm in the GUI, it starts listening for an AI Agent to connect.</p>
+                <p>Two training modes are supported:</p>
+                <div class="concept-grid">
+                    <div class="card">
+                        <div class="card-icon">🔄</div>
+                        <h4>Online Training (RL)</h4>
+                        <p>Real-time interaction between the simulator and an external RL agent over TCP. The agent receives observations, makes decisions (anchor selection), and the simulator applies them immediately. Supports <strong>Gymnasium</strong> (OpenAI Gym) interface.</p>
+                    </div>
+                    <div class="card">
+                        <div class="card-icon">💾</div>
+                        <h4>Offline Training (Data)</h4>
+                        <p>Batch data collection mode. The simulator runs scenarios while collecting UWB channels, CIR data, filter outputs, and ground truth into a buffer. Export as NPZ, CSV, JSON, or PyTorch datasets for supervised learning.</p>
+                    </div>
                 </div>
 
-                <div class="step">
-                    <h4>2. The Client (external_ai_client folder)</h4>
-                    <p>The <code>pulse_rl_env.py</code> creates a standard <code>gymnasium.Env</code> and connects to the GUI via a TCP socket. It receives the current measurements and true positions (for rewards), sends back the chosen anchors (action), and lets the GUI do the heavy mathematically filtering (EKF) using <strong>only</strong> the selected anchors.</p>
+                <h4>Architecture Diagram</h4>
+                <div class="mermaid-container" style="text-align:center; margin: 2rem 0;">
+                    <pre class="mermaid">
+graph LR
+    subgraph PULSE["PULSE Simulator"]
+        SIM["Main Simulation<br/>(Localization Engine)"]
+        API["AITrainingAPI<br/>(GET/SET)"]
+        GYM["AIGymServer<br/>(TCP:5555)"]
+        DATA["TrainingDataAPI<br/>(Data Collection)"]
+
+        SIM -->|"state"| API
+        API -->|"obs"| GYM
+        SIM -->|"samples"| DATA
+    end
+
+    GYM <-->|"TCP/IP<br/>JSON"| AGENT["External RL Agent<br/>(PyTorch / Stable Baselines)"]
+    DATA -->|"export"| FILES["NPZ / CSV / JSON<br/>PyTorch Dataset"]
+
+    style PULSE fill:#f5f5f5,stroke:#424242
+    style AGENT fill:#e3f2fd,stroke:#1565c0
+    style FILES fill:#e8f5e9,stroke:#388e3c
+                    </pre>
                 </div>
 
-                <h3>Setup & Training</h3>
-                <ol>
-                    <li>Install the basics for your AI environment: <pre><code>pip install gymnasium numpy</code></pre></li>
-                    <li>Open the PULSE Simulator GUI.</li>
-                    <li>Go to the <strong>Algorithms</strong> selection panel and choose <strong>AI Gym Server (Port 5555)</strong>.</li>
-                    <li>Click <strong>Start</strong> to run the simulation scenario. It will wait for the AI to connect.</li>
-                    <li>Open a terminal in the <code>external_ai_client</code> folder and run:
-                        <pre><code>python train_agent.py</code></pre>
-                    </li>
-                </ol>
-                <p>As the AI Agent plays, the GUI updates dynamically. The AI is rewarded for selecting Line-of-Sight (LOS) anchors and penalized for using Non-Line-of-Sight (NLOS) anchors.</p>
-
-                <hr>
-                
-                <h3>API Reference</h3>
-                
-                <h4>AITrainingAPI — Configuration & Data Access</h4>
-                <p>The primary facade for AI training. Imported from <code>src.api</code>:</p>
-                <pre><code>from src.api import AITrainingAPI
-
-api = AITrainingAPI(sim_context=app)</code></pre>
-                
                 <div class="info-box">
                     <h3>Scope Isolation</h3>
-                    <p>All SET operations modify a training-local configuration copy. The main simulation state is <strong>never</strong> affected.</p>
+                    <p>The <code>AITrainingAPI</code> creates a <strong>training-local copy</strong> of configuration. All SET operations (changing anchors, filters, energy profiles) modify only the training copy — the main simulation state is <strong>never affected</strong>. This means you can safely train agents while the main simulation runs independently.</p>
                 </div>
 
-                <h4>AIGymServer — RL Communication</h4>
-                <p>TCP server for OpenAI Gym-style interaction with external agents:</p>
-                <pre><code>from src.api.ai_gym_server import AIGymServer
+                <hr>
 
-server = AIGymServer(host="localhost", port=5555)
-server.start()</code></pre>
+                <!-- ====== 2. RL TRAINING ====== -->
+                <h2 id="rl-training">Reinforcement Learning Training</h2>
+                
+                <h4>The Problem: Smart Anchor Selection</h4>
+                <p>In a UWB localization system with <strong>N anchors</strong>, some anchors may be in <strong>Non-Line-of-Sight (NLOS)</strong> conditions at any given moment. Using NLOS anchors introduces significant <strong>positive range bias</strong>, degrading localization accuracy.</p>
+                
+                <p>The RL task is: <strong>learn to select the optimal subset of anchors</strong> to minimize localization error while maintaining robust geometry (GDOP).</p>
 
-                <h4>TrainingDataAPI — Offline Data Collection</h4>
-                <p>For batch data collection and export (dataset creation):</p>
+                <h4>How It Works</h4>
+                <div class="concept-grid">
+                    <div class="card">
+                        <h4>1. Server Side (Inside PULSE)</h4>
+                        <p>The simulator runs a built-in algorithm called <strong>"AI Gym Server (Port 5555)"</strong>. When selected in the GUI, it starts the <code>AIGymServer</code> TCP server and waits for an agent to connect. At each simulation step, it:</p>
+                        <ol>
+                            <li>Computes the full simulation state (positions, measurements, NLOS, energy)</li>
+                            <li>Builds an enriched observation via <code>build_step_observation()</code></li>
+                            <li>Sends the observation to the agent over TCP</li>
+                            <li>Waits for the agent's action (anchor selection)</li>
+                            <li>Applies the action and advances to the next step</li>
+                        </ol>
+                    </div>
+                    <div class="card">
+                        <h4>2. Client Side (External Agent)</h4>
+                        <p>The <code>external_ai_client/</code> package provides a standard <code>gymnasium.Env</code> wrapper (<code>PulseRLEnv</code>) that connects to the simulator via TCP. The agent:</p>
+                        <ol>
+                            <li>Receives observation (anchor positions + error)</li>
+                            <li>Runs its policy (neural network forward pass)</li>
+                            <li>Outputs an action (binary mask of which anchors to use)</li>
+                            <li>Receives reward based on localization improvement</li>
+                        </ol>
+                    </div>
+                </div>
+
+                <hr>
+
+                <!-- ====== 3. RL PIPELINE ====== -->
+                <h2 id="rl-pipeline">RL Pipeline Step-by-Step</h2>
+
+                <div class="mermaid-container" style="text-align:center; margin: 2rem 0;">
+                    <pre class="mermaid">
+sequenceDiagram
+    participant GUI as PULSE GUI
+    participant SIM as Simulation Engine
+    participant API as AITrainingAPI
+    participant SRV as AIGymServer
+    participant AGT as RL Agent
+
+    Note over GUI: User clicks "Start AI"
+    GUI->>SRV: start(port=5555)
+    AGT->>SRV: TCP connect
+
+    loop Each Simulation Step
+        SIM->>SIM: Update tag position
+        SIM->>SIM: Compute channel + ranging
+        SIM->>API: Pass state data
+        API->>API: build_step_observation()
+        API->>SRV: send_state(obs_dict)
+        SRV->>AGT: JSON state (TCP)
+        
+        AGT->>AGT: policy.forward(obs)
+        AGT->>SRV: JSON action (TCP)
+        SRV->>API: wait_for_action()
+        
+        Note over API: Action = anchor indices [0, 1, 3]
+        API->>SIM: Apply anchor selection
+        SIM->>SIM: Run EKF with selected anchors only
+        SIM->>GUI: Update visualization
+    end
+                    </pre>
+                </div>
+
+                <h4>Pipeline Stages Explained</h4>
+                <ol>
+                    <li><strong>Initialization</strong> — User starts AI training from the GUI. The <code>AIGymServer</code> begins listening on TCP port 5555. The external agent connects.</li>
+                    <li><strong>State Construction</strong> — At each step, <code>build_step_observation()</code> collects 15+ fields from the simulation into a single JSON-serializable dictionary.</li>
+                    <li><strong>Communication</strong> — State is sent as a newline-delimited JSON message. The agent responds with its action (selected anchor indices) in the same format.</li>
+                    <li><strong>Action Application</strong> — The simulator runs the localization algorithm (e.g., EKF) using <strong>only</strong> the anchors selected by the agent.</li>
+                    <li><strong>Reward Computation</strong> — The agent computes its own reward based on the change in localization error (see below).</li>
+                    <li><strong>Loop</strong> — The process repeats for each simulation time step (default dt = 5ms).</li>
+                </ol>
+
+                <hr>
+
+
+    
+                <!-- ====== 5. OBSERVATION & ACTION ====== -->
+                <h2 id="observation">Observation & Action Spaces</h2>
+
+                <h4>Observation Space</h4>
+                <p>The observation sent to the agent at each step contains:</p>
+                <table class="component-table">
+                    <thead>
+                        <tr><th>Category</th><th>Fields</th><th>Description</th></tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td><strong>Positions</strong></td>
+                            <td><code>tag_position_gt</code>, <code>tag_position_estimated</code>, <code>anchor_positions</code></td>
+                            <td>Ground truth, estimated, and anchor positions</td>
+                        </tr>
+                        <tr>
+                            <td><strong>Measurements</strong></td>
+                            <td><code>measurements.uwb_ranges</code>, <code>measurements.true_distances</code></td>
+                            <td>Noisy UWB measurements and true distances per anchor</td>
+                        </tr>
+                        <tr>
+                            <td><strong>IMU</strong></td>
+                            <td><code>imu_data.acceleration</code>, <code>imu_data.angular_velocity</code></td>
+                            <td>3-axis accelerometer and gyroscope readings</td>
+                        </tr>
+                        <tr>
+                            <td><strong>NLOS Info</strong></td>
+                            <td><code>nlos_info.is_los</code>, <code>nlos_info.nlos_count</code></td>
+                            <td>Per-anchor LOS/NLOS status and total count</td>
+                        </tr>
+                        <tr>
+                            <td><strong>Precision</strong></td>
+                            <td><code>precision.localization_error</code>, <code>precision.gdop</code></td>
+                            <td>Current error in meters, geometric dilution of precision</td>
+                        </tr>
+                        <tr>
+                            <td><strong>Energy</strong></td>
+                            <td><code>energy.step_energy_uJ</code>, <code>energy.battery_life_hours</code></td>
+                            <td>Power consumption data for energy-aware policies</td>
+                        </tr>
+                        <tr>
+                            <td><strong>Environment</strong></td>
+                            <td><code>environment.dt</code>, <code>environment.movement_speed</code></td>
+                            <td>Simulation configuration parameters</td>
+                        </tr>
+                    </tbody>
+                </table>
+
+                <h4>Action Space</h4>
+                <p>The action is a <strong>binary mask</strong> or <strong>list of anchor indices</strong> indicating which anchors the agent wants to use for localization:</p>
+                <pre><code># Binary mask: [1, 0, 1, 1] → use anchors 0, 2, 3
+action = env.action_space.sample()  # MultiBinary(num_anchors)
+
+# Or as indices: [0, 2, 3]
+{"action": [0, 2, 3]}</code></pre>
+
+                <hr>
+
+                <!-- ====== 6. OFFLINE DATA ====== -->
+                <h2 id="offline">Offline Data Collection</h2>
+                <p>For supervised learning, transfer learning, or dataset creation, use the <code>TrainingDataAPI</code> to collect and export simulation data in bulk.</p>
+
+                <h4>Data Collection Pipeline</h4>
+                <div class="mermaid-container" style="text-align:center; margin: 2rem 0;">
+                    <pre class="mermaid">
+flowchart LR
+    A["Simulation Loop"] --> B["DataCollector<br/>(per-step hook)"]
+    B --> C["DataBuffer<br/>(ring buffer)"]
+    C --> D{"Export Format"}
+    D -->|NPZ| E["NumPy .npz"]
+    D -->|CSV| F["Spreadsheet .csv"]
+    D -->|JSON| G["JSON file"]
+    D -->|PyTorch| H["Features .npy<br/>Targets .npy"]
+
+    style A fill:#e3f2fd,stroke:#1565c0
+    style C fill:#fff3e0,stroke:#e65100
+                    </pre>
+                </div>
+
+                <h4>What Data is Collected</h4>
+                <table class="component-table">
+                    <thead>
+                        <tr><th>Category</th><th>Includes</th><th>Use Case</th></tr>
+                    </thead>
+                    <tbody>
+                        <tr><td><strong>EM Signal</strong></td><td>Path loss, received power, frequency parameters</td><td>Channel modeling ML</td></tr>
+                        <tr><td><strong>Channel</strong></td><td>CIR data, multipath parameters, cluster/ray counts</td><td>NLOS detection networks</td></tr>
+                        <tr><td><strong>SNR</strong></td><td>Signal-to-noise ratio per anchor</td><td>Quality-weighted fusion</td></tr>
+                        <tr><td><strong>Filter Outputs</strong></td><td>Estimated position, covariance matrices, innovations</td><td>Filter performance analysis</td></tr>
+                        <tr><td><strong>Ground Truth</strong></td><td>True tag position, true distances</td><td>Supervised learning targets</td></tr>
+                        <tr><td><strong>IMU</strong></td><td>Accelerometer, gyroscope readings</td><td>Sensor fusion ML</td></tr>
+                    </tbody>
+                </table>
+
+                <h4>Complete Example</h4>
                 <pre><code>from src.api import TrainingDataAPI
 
-api = TrainingDataAPI(buffer_size=10000)
-api.select_data(channel=True, filter_outputs=True, ground_truth=True)
+# 1. Configure collection
+api = TrainingDataAPI(buffer_size=50000)
+api.select_data(
+    channel=True,        # CIR and multipath data
+    filter_outputs=True, # EKF/UKF state estimates
+    ground_truth=True,   # True positions
+    imu=True,           # Accelerometer + gyroscope
+    snr=True            # Signal quality
+)
+
+# 2. Enable collection
 api.enable_collection()
-# ... run simulation ...
-api.export_to_file("training_data.npz")</code></pre>
+
+# 3. Run simulation... (data is automatically collected)
+
+# 4. Check statistics
+stats = api.get_statistics()
+print(f"Collected: {stats['sample_count']} samples")
+print(f"Mean error: {stats['mean_error']:.3f} m")
+print(f"LOS ratio: {stats['los_percentage']:.1f}%")
+
+# 5. Export in multiple formats
+api.export_to_file("data.npz")                # NumPy compressed
+api.export_to_file("data.csv", format="csv")   # Spreadsheet
+api.export_for_pytorch("./pytorch_data/")      # PyTorch-ready
+
+# 6. Direct pandas integration
+import pandas as pd
+df = pd.DataFrame(api.get_synchronized_data())
+print(df.describe())</code></pre>
+
+                <hr>
+
+                <!-- ====== 7. SETUP ====== -->
+                <h2 id="setup">Setup & Training Guide</h2>
+
+                <h4>Prerequisites</h4>
+                <pre><code># Install the external AI client package
+cd external_ai_client
+pip install -e .
+
+# Install RL dependencies
+pip install gymnasium numpy torch stable-baselines3</code></pre>
+
+                <h4>Step-by-Step Training</h4>
+                <ol>
+                    <li><strong>Open PULSE Simulator GUI</strong></li>
+                    <li>Click <strong>🤖 Start AI</strong> to open the AI Training Window</li>
+                    <li>Set the <strong>Port</strong> (default: <code>5555</code>) and <strong>Measurement Source</strong> (UWB / IMU / Both)</li>
+                    <li>Click <strong>▶ Start Training</strong> — the simulator begins stepping and waits for your agent</li>
+                    <li>In a terminal, run your training script:
+                        <pre><code>python train_agent.py</code></pre>
+                    </li>
+                    <li>Watch the GUI update in real-time as the agent learns</li>
+                </ol>
+
+                <h4>Port Configuration</h4>
+                <p>The port must match on both sides:</p>
+                <ul>
+                    <li><strong>GUI:</strong> Use the Port spinner in the AI Training Window toolbar</li>
+                    <li><strong>Code:</strong> Pass <code>port=XXXX</code> to <code>PulseRLEnv(port=5555)</code> or <code>PulseClient(port=5555)</code></li>
+                </ul>
+
+                <div class="info-box">
+                    <h3>Next: API Reference</h3>
+                    <p>For complete method-by-method documentation of all APIs mentioned on this page, see the <a href="api_reference.html">API Reference</a>.</p>
+                </div>
 
             </section>
+
+            <footer class="footer">
+                <p>&copy; 2026 PULSE Project.</p>
+            </footer>
 
         </div>
     </main>

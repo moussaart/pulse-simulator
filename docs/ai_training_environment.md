@@ -126,14 +126,24 @@ TCP server for OpenAI Gym-style interaction with external agents:
 ```python
 from src.api.ai_gym_server import AIGymServer
 
-server = AIGymServer(host="localhost", port=5555)
+server = AIGymServer(port=5555)
 server.start()
 ```
 
-**Protocol:**
-- `send_state(state_dict)` — Send observation to agent
-- `receive_action()` — Receive action from agent
-- `send_reward(reward, done)` — Send reward and episode status
+**Properties:**
+- `connected` — Whether a client is currently connected (read-only)
+- `protocol_version` — Current protocol version (v2)
+
+**Methods:**
+- `start()` — Start the TCP server in a background thread
+- `stop()` — Stop the server and close all connections
+- `send_state(state_data)` — Send observation dict (or list of dicts) to the client. Returns `True` if successful. Automatically injects `protocol_version` into each state dict.
+- `wait_for_action(timeout=None)` — Block until the client responds with an action. Returns a tuple `(action, metrics)` or `None` on timeout/disconnect.
+
+**Protocol v2:**
+- Each state dict sent includes a `protocol_version` field
+- Client sends JSON lines with `{"action": [...]}` for anchor selection
+- Legacy v1 clients can send `{"anchor_mask": [0, 1, 1, 0]}` format
 
 ---
 

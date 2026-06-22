@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PULSE Simulator - Quick Start</title>
+    <meta name="description" content="Get up and running with PULSE Simulator in 5 minutes. Minimal example, complete workflow, and AI training quick start.">
+    <link rel="icon" type="image/x-icon" href="../assets/logo.ico">
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+    <nav class="sidebar" id="sidebar">
+        <div class="sidebar-header">
+            <div class="logo-container">
+                <img src="assets/logo.svg" alt="PULSE Logo" class="logo-icon">
+                <div class="logo-text">PULSE</div>
+            </div>
+            <p class="subtitle">Simulator Docs v1.0</p>
+            <div class="theme-switch-wrapper">
+                <label class="theme-switch" for="checkbox">
+                    <input type="checkbox" id="checkbox" />
+                    <div class="slider round"></div>
+                </label>
+                <em>Dark Mode</em>
+            </div>
+        </div>
+        <ul class="nav-links">
+            <li><a href="../index.html">Introduction</a></li>
+            <li><a href="quickstart.html" class="active">Quick Start</a></li>
+            <li><a href="interface.html">User Guide</a></li>
+            <li><a href="architecture.html">Architecture</a></li>
+            <li><a href="simulation.html">Technical Reference</a></li>
+            <li><a href="ai_training.html">AI Training</a></li>
+            <li><a href="api_reference.html">API Reference</a></li>
+            <li><a href="advanced.html">Developer Guide</a></li>
+            <li><a href="researchers.html">Researchers</a></li>
+            <li><a href="license.html">License</a></li>
+        </ul>
+        <div class="sidebar-footer">
+             <p>&copy; 2026 PULSE Project</p>
+             <div style="margin-top: 10px; font-size: 0.85rem;">
+                <p style="margin-bottom: 5px; color: var(--text-tertiary);">Developed by <a href="https://tahamoussa.info/" target="_blank" style="font-weight: 500; color: var(--text-secondary);">Taha Moussa</a></p>
+                <div style="display: flex; gap: 10px;">
+                    <a href="https://www.linkedin.com/in/moussa-taha/" target="_blank" style="font-size: 0.8rem;">LinkedIn</a>
+                    <a href="https://github.com/moussaart" target="_blank" style="font-size: 0.8rem;">GitHub</a>
+                </div>
+             </div>
+        </div>
+    </nav>
+
+    <main class="content-wrapper">
+        <div class="content">
+            
+            <section id="quickstart" class="doc-section">
+                <h1>Quick Start</h1>
+                <p class="lead">Get a simulation running in under 5 minutes — from installation to your first results.</p>
+                <hr>
+
+                <!-- ====== STEP 1 ====== -->
+                <h3>1. Install & Launch</h3>
+
+                <div class="concept-grid">
+                    <div class="card">
+                        <div class="card-icon">🖥️</div>
+                        <h4>Option A: Installer (Fastest)</h4>
+                        <p>Download and run the Windows installer — no Python required.</p>
+                        <a href="https://github.com/moussaart/pulse-simulator/releases/download/pulse_simulator_v1.0/PULSE_Installer.exe" class="btn btn-primary" download style="margin-top: 1rem; display: inline-block;">Download Installer</a>
+                    </div>
+                    <div class="card">
+                        <div class="card-icon">🐍</div>
+                        <h4>Option B: From Source</h4>
+                        <pre style="margin-top: 0.5rem;"><code>git clone https://github.com/moussaart/pulse-simulator.git
+cd pulse-simulator
+pip install -r requirements.txt
+python main.py</code></pre>
+                    </div>
+                </div>
+
+                <hr>
+
+                <!-- ====== STEP 2 ====== -->
+                <h3>2. Your First Simulation (2 minutes)</h3>
+                <p>When the application opens, you'll see the main dashboard with a default scenario already loaded.</p>
+
+                <div class="step">
+                    <h4>Step 1: Check the Default Scene</h4>
+                    <p>You should see <strong>4 anchors</strong> (blue triangles) placed at the corners of the room and a <strong>tag</strong> (moving circle) with a predefined trajectory.</p>
+                </div>
+
+                <div class="step">
+                    <h4>Step 2: Choose an Algorithm</h4>
+                    <p>In the <strong>Localization Algorithm</strong> panel on the right sidebar, select one of the built-in algorithms:</p>
+                    <ul>
+                        <li><strong>Trilateration</strong> — Simple geometric solution (fastest, no filtering)</li>
+                        <li><strong>Extended Kalman Filter (EKF)</strong> — Recommended for most scenarios</li>
+                        <li><strong>NLOS-Aware AEKF</strong> — Best accuracy in environments with obstacles</li>
+                    </ul>
+                </div>
+
+                <div class="step">
+                    <h4>Step 3: Press ▶ Start</h4>
+                    <p>Click the <strong>Play</strong> button in the toolbar. The tag will start moving along its trajectory. Watch:</p>
+                    <ul>
+                        <li>The <strong>green trail</strong> (estimated position) vs the <strong>blue trail</strong> (ground truth)</li>
+                        <li>Signal rays changing from <span style="color: #4caf50; font-weight: bold;">green (LOS)</span> to <span style="color: #f44336; font-weight: bold;">red (NLOS)</span> as the tag moves behind obstacles</li>
+                    </ul>
+                </div>
+
+                <div class="step">
+                    <h4>Step 4: Open Analysis Windows</h4>
+                    <p>Go to <strong>View</strong> menu and open:</p>
+                    <ul>
+                        <li><strong>CIR Plot</strong> — Watch the Channel Impulse Response update in real-time</li>
+                        <li><strong>Distance Plot</strong> — Compare measured vs. true distances for each anchor</li>
+                        <li><strong>Error Metrics</strong> — Track RMSE and CDF plots</li>
+                    </ul>
+                </div>
+
+                <hr>
+
+                <!-- ====== STEP 3 ====== -->
+                <h3>3. Add Obstacles (NLOS Testing)</h3>
+                <p>To see how algorithms handle Non-Line-of-Sight conditions:</p>
+                <ol>
+                    <li>Open the <strong>NLOS Obstacles</strong> panel</li>
+                    <li>Click <strong>"Draw Polygon"</strong></li>
+                    <li>Click on the map to draw a wall between the tag path and an anchor</li>
+                    <li>Right-click to close the polygon</li>
+                    <li>Press <strong>▶ Start</strong> again and observe the increased error when the tag passes behind the wall</li>
+                </ol>
+
+                <div class="info-box">
+                    <h3>Tip: Material Properties</h3>
+                    <p>Right-click any obstacle to change its material (Concrete, Glass, Wood). Each material has different signal attenuation properties, creating realistic NLOS conditions.</p>
+                </div>
+
+                <hr>
+
+                <!-- ====== STEP 4 ====== -->
+                <h3>4. Quick Start: AI Training</h3>
+                <p>Train an RL agent to intelligently select anchors in 3 steps:</p>
+
+                <div class="step">
+                    <h4>Step 1: Start the AI Server</h4>
+                    <p>In the PULSE GUI, click <strong>🤖 Start AI</strong>. This opens the AI Training window. Set the port (default: <code>5555</code>) and click <strong>▶ Start Training</strong>.</p>
+                </div>
+
+                <div class="step">
+                    <h4>Step 2: Install the Client Package</h4>
+                    <pre><code>cd external_ai_client
+pip install -e .
+pip install gymnasium numpy</code></pre>
+                </div>
+
+                <div class="step">
+                    <h4>Step 3: Run the Training Agent</h4>
+                    <pre><code>python train_agent.py</code></pre>
+                    <p>The agent will connect to the simulator and start training. Watch the GUI update as the agent learns to select the best anchors.</p>
+                </div>
+
+                <h4>Minimal Custom RL Agent</h4>
+                <pre><code>from pulse_ai_client import PulseRLEnv
+
+# Connect to running PULSE simulator
+env = PulseRLEnv(port=5555, num_anchors=8)
+obs, info = env.reset()
+
+for step in range(1000):
+    # Your RL policy here (replace with trained model)
+    action = env.action_space.sample()
+    obs, reward, done, truncated, info = env.step(action)
+
+    # Access full state
+    state = info["full_state"]
+    print(f"Step {step}: error={state.error:.3f}m, "
+          f"NLOS={state.nlos_info.nlos_count}")
+
+env.close()</code></pre>
+
+                <hr>
+
+                <!-- ====== NEXT STEPS ====== -->
+                <h3>What's Next?</h3>
+                <div class="concept-grid">
+                    <div class="card">
+                        <div class="card-icon">📘</div>
+                        <h4>User Guide</h4>
+                        <p>Learn all GUI features: anchors, obstacles, trajectory design, analysis windows.</p>
+                        <p><a href="interface.html">→ Read the User Guide</a></p>
+                    </div>
+                    <div class="card">
+                        <div class="card-icon">🏗️</div>
+                        <h4>Architecture</h4>
+                        <p>Understand how the physics engine, localization, and AI modules interact.</p>
+                        <p><a href="architecture.html">→ Explore Architecture</a></p>
+                    </div>
+                    <div class="card">
+                        <div class="card-icon">🤖</div>
+                        <h4>AI Training</h4>
+                        <p>Deep dive into the RL environment, reward design, and data collection APIs.</p>
+                        <p><a href="ai_training.html">→ AI Training Guide</a></p>
+                    </div>
+                    <div class="card">
+                        <div class="card-icon">📐</div>
+                        <h4>API Reference</h4>
+                        <p>Complete method-by-method reference for all PULSE APIs and the TCP protocol.</p>
+                        <p><a href="api_reference.html">→ API Reference</a></p>
+                    </div>
+                </div>
+
+            </section>
+
+            <footer class="footer">
+                <p>&copy; 2026 PULSE Project.</p>
+            </footer>
+
+        </div>
+    </main>
+
+    <script src="script.js"></script>
+</body>
+</html>

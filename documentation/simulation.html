@@ -4,11 +4,12 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>PULSE Simulator - Technical Reference</title>
+    <meta name="description" content="Technical reference for the PULSE Simulator physics models: UWB channel modeling (IEEE 802.15.4a), path loss, multipath Saleh-Valenzuela model, ranging error model, and energy consumption modeling.">
+    <link rel="icon" type="image/x-icon" href="../assets/logo.ico">
     <!-- Fonts managed in CSS via @import -->
     <link rel="stylesheet" href="styles.css">
     
     <!-- MathJax for rendering LaTeX -->
-    <script src="https://polyfill.io/v3/polyfill.min.js?features=es6"></script>
     <script>
     window.MathJax = {
       tex: {
@@ -37,11 +38,13 @@
         </div>
         <ul class="nav-links">
             <li><a href="../index.html">Introduction</a></li>
-            <li><a href="getting_started.html">Getting Started</a></li>
+            <li><a href="quickstart.html">Quick Start</a></li>
             <li><a href="interface.html">User Guide</a></li>
+            <li><a href="architecture.html">Architecture</a></li>
             <li><a href="simulation.html" class="active">Technical Reference</a></li>
+            <li><a href="ai_training.html">AI Training</a></li>
+            <li><a href="api_reference.html">API Reference</a></li>
             <li><a href="advanced.html">Developer Guide</a></li>
-            <li><a href="ai_training.html">AI Training Environment</a></li>
             <li><a href="researchers.html">Researchers</a></li>
             <li><a href="license.html">License</a></li>
         </ul>
@@ -213,7 +216,28 @@
                     </tbody>
                 </table>
 
+                <hr style="margin: 40px 0;">
+
+                <h3>References</h3>
+                <ul class="references-list" style="margin-top: 20px; line-height: 1.6; color: var(--text-secondary); font-size: 0.95rem;">
+                    <li style="margin-bottom: 10px;"><strong>Molisch, A. F., et al. (2004).</strong> "IEEE 802.15. 4a channel model-final report." <em>IEEE P802</em>, 15(04), 0662.</li>
+                    <li style="margin-bottom: 10px;"><strong>Zhang, Q., Cao, W., & Nallanathan, A. (2010).</strong> "Cramér-Rao lower bounds for UWB localization with antenna array." <em>2010 IEEE International Conference on Communications</em> (pp. 1-5). IEEE.</li>
+                    <li style="margin-bottom: 10px;"><strong>Karapistoli, E., et al. (2010).</strong> "An overview of the IEEE 802.15. 4a standard." <em>IEEE Communications Magazine</em>, 48(1), 47-53.</li>
+                    <li style="margin-bottom: 10px;"><strong>Paszek, K., Grzechca, D., & Becker, A. (2021).</strong> "Design of the UWB positioning system simulator for LOS/NLOS environments." <em>Sensors</em>, 21(14), 4757.</li>
+                    <li style="margin-bottom: 10px;"><strong>Kuhn, M. J., et al. (2010).</strong> "A system-level simulation framework for UWB localization." <em>IEEE transactions on microwave theory and techniques</em>, 58(12), 3527-3537.</li>
+                    <li style="margin-bottom: 10px;"><strong>Fathy, A., Yahya, A., & Ragai, H. (2014).</strong> "Deterministic UWB channel modeling using ray tracing approach." <em>International Conference on Engineering and Technology (ICET)</em> (pp. 1-4). IEEE.</li>
+                    <li style="margin-bottom: 10px;"><strong>Moussa, T., Berder, O., Courtay, A., & Le Gentil, M. (2025).</strong> "NA-AEKF: A NLOS-Aware Adaptive Extended Kalman Filter for Robust Indoor Localization." <em>21th International Conference on Wireless and Mobile Computing, Networking and Communications (WiMob)</em> (pp. 1-6). IEEE.</li>
+                    <li style="margin-bottom: 10px;"><strong>Laadung, T., et al. (2023).</strong> "Adaptive Extended Kalman Filter Position Estimation Based on Ultra-Wideband Active-Passive Ranging Protocol." <em>IEEE Access</em>, 11, 92575-92588.</li>
+                    <li style="margin-bottom: 10px;"><strong>Nishino, R., & Loomis, S. H. C. (2017).</strong> "Cupy: A numpy-compatible library for nvidia gpu calculations." <em>31st conference on neural information processing systems</em>, 151(7).</li>
+                    <li style="margin-bottom: 10px;"><strong>Amiot, N., Laaraiedh, M., & Uguen, B. (2013).</strong> "Pylayers: An open source dynamic simulator for indoor propagation and localization." <em>2013 IEEE International Conference on Communications Workshops (ICC)</em> (pp. 84-88). IEEE.</li>
+                    <li style="margin-bottom: 10px;"><strong>Švecová, M., Kocur, D., & Švingál, M. (2018).</strong> "UWB-PerLoc-MAT: MATLAB App for Person Localization by UWB Sensor." <em>2018 16th International Conference on Emerging eLearning Technologies and Applications (ICETA)</em> (pp. 545-550). IEEE.</li>
+                </ul>
+
             </section>
+
+            <footer class="footer">
+                <p>&copy; 2026 PULSE Project.</p>
+            </footer>
 
         </div>
     </main>

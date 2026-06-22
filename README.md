@@ -72,8 +72,8 @@ Download and run the provided `PULSE_Installer.exe`. The installer will configur
 
 1.  Clone the repository:
     ```bash
-    git clone https://github.com/your-org/PULSE-project.git
-    cd PULSE-project
+    git clone https://github.com/moussaart/pulse-simulator.git
+    cd pulse-simulator
     ```
 2.  Install the required Python packages:
     ```bash
@@ -92,7 +92,7 @@ Download and run the provided `PULSE_Installer.exe`. The installer will configur
 
 Execute the main entry point from the project root:
 ```bash
-python run.py
+python main.py
 ```
 
 ---
@@ -303,7 +303,7 @@ PULSE-project/
 │   └── PULSE_Installer.exe
 │
 ├── requirements.txt            # Python dependencies
-├── run.py                      # Application entry point
+├── main.py                     # Application entry point
 └── README.md                   # This file
 ```
 
@@ -340,6 +340,23 @@ Special thanks to our funders and partners:
 *   **[Lannion-Trégor Communauté (LTC)](https://www.lannion-tregor.com)** : for co-funding this research
 *   **IRISA / INRIA / CNRS** : for research infrastructure and institutional support
 *   **Granit Team at IRISA** : for all contributors and researchers involved
+
+---
+
+## 📚 References
+
+* Molisch, A. F., Balakrishnan, K., Chong, C. C., Emami, S., Fort, A., Karedal, J., Kunisch, J., Schantz, H., Schuster, U., & Siwiak, K. (2004). IEEE 802.15. 4a channel model-final report. *IEEE P802*, 15(04), 0662.
+* Zhang, Q., Cao, W., & Nallanathan, A. (2010). Cramér-Rao lower bounds for UWB localization with antenna array. In *2010 IEEE International Conference on Communications* (pp. 1-5). IEEE.
+* Karapistoli, E., Pavlidou, F. N., Gragopoulos, I., & Tsetsinas, I. (2010). An overview of the IEEE 802.15. 4a standard. *IEEE Communications Magazine*, 48(1), 47-53.
+* Paszek, K., Grzechca, D., & Becker, A. (2021). Design of the UWB positioning system simulator for LOS/NLOS environments. *Sensors*, 21(14), 4757.
+* Kuhn, M. J., Mahfouz, M. R., Zhang, C., Merkl, B. C., & Fathy, A. E. (2010). A system-level simulation framework for UWB localization. *IEEE transactions on microwave theory and techniques*, 58(12), 3527-3537.
+* Fathy, A., Yahya, A., & Ragai, H. (2014). Deterministic UWB channel modeling using ray tracing approach. In *International Conference on Engineering and Technology (ICET)* (pp. 1-4). IEEE.
+* Moussa, T., Berder, O., Courtay, A., & Le Gentil, M. (2025). NA-AEKF: A NLOS-Aware Adaptive Extended Kalman Filter for Robust Indoor Localization. In *21th International Conference on Wireless and Mobile Computing, Networking and Communications (WiMob)* (pp. 1-6). IEEE. doi:10.1109/WiMob66857.2025.11257468
+* Moussa, T., Courtay, A., Le Gentil, M., & Berder, O. (2026). PULSE: An Open-Source UWB Indoor Localization Simulator with Dynamic Environment Modeling. *IRISA Laboratory*. [URL](https://moussaart.github.io/pulse-simulator/)
+* Laadung, T., Ulp, S., Fjodorov, A., Alam, M. M., & Le Moullec, Y. (2023). Adaptive Extended Kalman Filter Position Estimation Based on Ultra-Wideband Active-Passive Ranging Protocol. *IEEE Access*, 11, 92575-92588. doi:10.1109/ACCESS.2023.3308696
+* Nishino, R., & Loomis, S. H. C. (2017). Cupy: A numpy-compatible library for nvidia gpu calculations. *31st conference on neural information processing systems*, 151(7).
+* Amiot, N., Laaraiedh, M., & Uguen, B. (2013). Pylayers: An open source dynamic simulator for indoor propagation and localization. In *2013 IEEE International Conference on Communications Workshops (ICC)* (pp. 84-88). IEEE.
+* Švecová, M., Kocur, D., & Švingál, M. (2018). UWB-PerLoc-MAT: MATLAB App for Person Localization by UWB Sensor. In *2018 16th International Conference on Emerging eLearning Technologies and Applications (ICETA)* (pp. 545-550). IEEE.
 
 ---
 

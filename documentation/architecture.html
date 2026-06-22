@@ -1,0 +1,356 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PULSE Simulator - System Architecture</title>
+    <meta name="description" content="In-depth architecture documentation for the PULSE UWB Indoor Localization Simulator. System overview, module interactions, data flow pipelines, and AI training architecture.">
+    <link rel="icon" type="image/x-icon" href="../assets/logo.ico">
+    <link rel="stylesheet" href="styles.css">
+
+    <!-- Mermaid for diagrams -->
+    <script type="module">
+        import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs';
+        mermaid.initialize({ 
+            startOnLoad: true, 
+            theme: 'neutral',
+            themeVariables: {
+                fontSize: '14px'
+            }
+        });
+    </script>
+</head>
+<body>
+
+    <nav class="sidebar" id="sidebar">
+        <div class="sidebar-header">
+            <div class="logo-container">
+                <img src="assets/logo.svg" alt="PULSE Logo" class="logo-icon">
+                <div class="logo-text">PULSE</div>
+            </div>
+            <p class="subtitle">Simulator Docs v1.0</p>
+            <div class="theme-switch-wrapper">
+                <label class="theme-switch" for="checkbox">
+                    <input type="checkbox" id="checkbox" />
+                    <div class="slider round"></div>
+                </label>
+                <em>Dark Mode</em>
+            </div>
+        </div>
+        <ul class="nav-links">
+            <li><a href="../index.html">Introduction</a></li>
+            <li><a href="quickstart.html">Quick Start</a></li>
+            <li><a href="interface.html">User Guide</a></li>
+            <li><a href="architecture.html" class="active">Architecture</a></li>
+            <li><a href="simulation.html">Technical Reference</a></li>
+            <li><a href="ai_training.html">AI Training</a></li>
+            <li><a href="api_reference.html">API Reference</a></li>
+            <li><a href="advanced.html">Developer Guide</a></li>
+            <li><a href="researchers.html">Researchers</a></li>
+            <li><a href="license.html">License</a></li>
+        </ul>
+        <div class="sidebar-footer">
+             <p>&copy; 2026 PULSE Project</p>
+             <div style="margin-top: 10px; font-size: 0.85rem;">
+                <p style="margin-bottom: 5px; color: var(--text-tertiary);">Developed by <a href="https://tahamoussa.info/" target="_blank" style="font-weight: 500; color: var(--text-secondary);">Taha Moussa</a></p>
+                <div style="display: flex; gap: 10px;">
+                    <a href="https://www.linkedin.com/in/moussa-taha/" target="_blank" style="font-size: 0.8rem;">LinkedIn</a>
+                    <a href="https://github.com/moussaart" target="_blank" style="font-size: 0.8rem;">GitHub</a>
+                </div>
+             </div>
+        </div>
+    </nav>
+
+    <main class="content-wrapper">
+        <div class="content">
+            
+            <section id="architecture" class="doc-section">
+                <h1>System Architecture</h1>
+                <p class="lead">Understand how all PULSE components interact — from the physics engine to the AI training pipeline.</p>
+                <hr>
+
+                <!-- ====== 1. HIGH-LEVEL OVERVIEW ====== -->
+                <h3>1. High-Level Overview</h3>
+                <p>PULSE is built on a <strong>layered, modular architecture</strong> that cleanly separates concerns. Each layer can be extended or replaced independently:</p>
+
+                <div class="mermaid-container" style="text-align:center; margin: 2rem 0;">
+                    <pre class="mermaid">
+graph TB
+    subgraph GUI["🖥️ GUI Layer (PyQt5)"]
+        MW["Main Window"]
+        CIR["CIR Plot"]
+        DP["Distance Plot"]
+        IMU["IMU Viewer"]
+        SC["Scenario Designer"]
+    end
+
+    subgraph API["🔌 API Layer"]
+        AIT["AITrainingAPI<br/>(GET/SET Facade)"]
+        TDA["TrainingDataAPI<br/>(Data Collection)"]
+        GYM["AIGymServer<br/>(TCP:5555)"]
+    end
+
+    subgraph CORE["⚙️ Core Engine"]
+        LOC["Localization Module<br/>(EKF, UKF, PF, AEKF)"]
+        UWB["UWB Channel Model<br/>(IEEE 802.15.4a)"]
+        MOT["Motion Model<br/>(Trajectories)"]
+        ENR["Energy Model<br/>(DW3000, NXP)"]
+    end
+
+    subgraph PARALLEL["⚡ Parallel Computing"]
+        GPU["CuPy / CUDA"]
+        CPU["NumPy Fallback"]
+    end
+
+    GUI --> API
+    GUI --> CORE
+    API --> CORE
+    CORE --> PARALLEL
+    GYM -.->|TCP/IP| EXT["🤖 External RL Agent<br/>(PyTorch / Stable Baselines)"]
+                    </pre>
+                </div>
+
+                <table class="component-table">
+                    <thead>
+                        <tr>
+                            <th>Layer</th>
+                            <th>Module Path</th>
+                            <th>Responsibility</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td><strong>GUI</strong></td>
+                            <td><code>src/gui/</code></td>
+                            <td>Real-time visualization, user interaction, scenario management</td>
+                        </tr>
+                        <tr>
+                            <td><strong>API</strong></td>
+                            <td><code>src/api/</code></td>
+                            <td>AI training facades, data collection, TCP server for RL agents</td>
+                        </tr>
+                        <tr>
+                            <td><strong>Core Engine</strong></td>
+                            <td><code>src/core/</code></td>
+                            <td>Physics simulation, localization algorithms, motion models, energy calculations</td>
+                        </tr>
+                        <tr>
+                            <td><strong>Parallel</strong></td>
+                            <td><code>src/core/parallel/</code></td>
+                            <td>GPU/CPU abstraction with automatic fallback</td>
+                        </tr>
+                    </tbody>
+                </table>
+
+                <hr>
+
+                <!-- ====== 2. CORE ENGINE ====== -->
+                <h3>2. Core Engine — Module Breakdown</h3>
+                <p>The core engine is the heart of PULSE. It runs the physics simulation independent of the GUI and API layers.</p>
+
+                <div class="concept-grid">
+                    <div class="card">
+                        <div class="card-icon">📡</div>
+                        <h4>UWB Channel Model</h4>
+                        <p><code>src/core/uwb/</code></p>
+                        <p>Implements the IEEE 802.15.4a Saleh-Valenzuela model. Generates realistic Channel Impulse Responses (CIR) with multipath, path loss, shadowing, and NLOS conditions.</p>
+                    </div>
+                    <div class="card">
+                        <div class="card-icon">🎯</div>
+                        <h4>Localization</h4>
+                        <p><code>src/core/localization/</code></p>
+                        <p>Contains all position estimation algorithms: Trilateration, EKF, UKF, Adaptive EKF, NLOS-Aware AEKF, Particle Filters, and the plugin system for user-created algorithms.</p>
+                    </div>
+                    <div class="card">
+                        <div class="card-icon">🏃</div>
+                        <h4>Motion Model</h4>
+                        <p><code>src/core/motion/</code></p>
+                        <p>Generates tag trajectories: circular, figure-8, random walk, CSV import, and custom drawn paths. Also handles moving obstacles.</p>
+                    </div>
+                    <div class="card">
+                        <div class="card-icon">🔋</div>
+                        <h4>Energy Model</h4>
+                        <p><code>src/core/uwb/energy_model.py</code></p>
+                        <p>Duty-cycle based power estimation with hardware profiles (DW3000, NXP SR150). Supports SS-TWR and DS-TWR ranging modes.</p>
+                    </div>
+                </div>
+
+                <hr>
+
+                <!-- ====== 3. DATA FLOW ====== -->
+                <h3>3. Simulation Data Flow</h3>
+                <p>Each simulation step follows this pipeline from tag movement to GUI display:</p>
+
+                <div class="mermaid-container" style="text-align:center; margin: 2rem 0;">
+                    <pre class="mermaid">
+flowchart LR
+    A["🏃 Tag Motion<br/>(Position Update)"] --> B["📡 Channel Model<br/>(Path Loss + CIR)"]
+    B --> C["📏 Ranging<br/>(ToF + Noise + NLOS Bias)"]
+    C --> D["🎯 Localization<br/>(EKF / UKF / PF)"]
+    D --> E["📊 GUI Display<br/>(Map + Plots + Metrics)"]
+    
+    C --> F["💾 Data Collection<br/>(TrainingDataAPI)"]
+    D --> F
+    C --> G["🤖 RL Agent<br/>(AIGymServer)"]
+    D --> G
+
+    style A fill:#e8f5e9,stroke:#388e3c
+    style B fill:#e3f2fd,stroke:#1565c0
+    style C fill:#fff3e0,stroke:#e65100
+    style D fill:#f3e5f5,stroke:#7b1fa2
+    style E fill:#fce4ec,stroke:#c62828
+    style F fill:#e0f7fa,stroke:#00838f
+    style G fill:#fff9c4,stroke:#f9a825
+                    </pre>
+                </div>
+
+                <h4>Step-by-Step Execution</h4>
+                <ol>
+                    <li><strong>Tag Position Update</strong> — The motion model advances the tag position based on the selected trajectory pattern and time step (default 5ms).</li>
+                    <li><strong>Channel Model</strong> — For each anchor-tag pair, the UWB channel model computes:
+                        <ul>
+                            <li>Path loss (distance + frequency dependent)</li>
+                            <li>Log-normal shadowing</li>
+                            <li>Multipath CIR via Saleh-Valenzuela model</li>
+                            <li>LOS/NLOS condition (based on obstacle intersection)</li>
+                        </ul>
+                    </li>
+                    <li><strong>Ranging</strong> — Time-of-Flight distance measurement is derived with:
+                        <ul>
+                            <li>Gaussian noise bounded by CRLB (from SNR)</li>
+                            <li>NLOS positive bias (when direct path is blocked)</li>
+                        </ul>
+                    </li>
+                    <li><strong>Localization</strong> — The selected algorithm processes the noisy range measurements to estimate the tag position.</li>
+                    <li><strong>Output</strong> — Results are sent to GUI display, data collection buffer, and/or RL agent socket simultaneously.</li>
+                </ol>
+
+                <hr>
+
+                <!-- ====== 4. AI TRAINING ARCHITECTURE ====== -->
+                <h3>4. AI Training Architecture</h3>
+                <p>PULSE provides two modes for AI/ML integration — <strong>online</strong> (real-time RL) and <strong>offline</strong> (batch data collection).</p>
+
+                <div class="mermaid-container" style="text-align:center; margin: 2rem 0;">
+                    <pre class="mermaid">
+sequenceDiagram
+    participant SIM as PULSE Simulator
+    participant API as AITrainingAPI
+    participant SRV as AIGymServer<br/>(TCP:5555)
+    participant AGT as External RL Agent
+
+    Note over SIM,AGT: Online RL Training Flow
+
+    SIM->>API: GET simulation state
+    API->>API: build_step_observation()
+    API->>SRV: send_state(obs_dict)
+    SRV->>AGT: JSON state (TCP)
+    AGT->>AGT: Policy forward pass
+    AGT->>SRV: JSON action (TCP)
+    SRV->>API: wait_for_action()
+    API->>SIM: Apply anchor selection
+    SIM->>SIM: Next simulation step
+    Note over SIM,AGT: Loop continues...
+                    </pre>
+                </div>
+
+                <div class="concept-grid">
+                    <div class="card">
+                        <div class="card-icon">🔄</div>
+                        <h4>Online Training (RL)</h4>
+                        <p>The <code>AIGymServer</code> exposes a TCP socket. An external agent (PyTorch, Stable Baselines) connects, receives observations, sends actions (anchor selection), and the simulator applies them in real-time.</p>
+                    </div>
+                    <div class="card">
+                        <div class="card-icon">💾</div>
+                        <h4>Offline Training (Data)</h4>
+                        <p>The <code>TrainingDataAPI</code> hooks into the simulation loop to collect samples into a buffer. Data can be exported as NPZ, CSV, JSON, or PyTorch Datasets for supervised learning.</p>
+                    </div>
+                </div>
+
+                <div class="info-box">
+                    <h3>Scope Isolation</h3>
+                    <p>The <code>AITrainingAPI</code> creates a <strong>training-local copy</strong> of configuration. All SET operations (changing anchors, filters, energy profiles) modify only the training copy — the main simulation state is <strong>never affected</strong>.</p>
+                </div>
+
+                <hr>
+
+                <!-- ====== 5. MODULE DIRECTORY ====== -->
+                <h3>5. Source Code Directory</h3>
+                <pre><code>src/
+├── api/                          # AI Training & Data APIs
+│   ├── __init__.py               # Exports: AITrainingAPI, TrainingDataAPI
+│   ├── ai_training_facade.py     # GET/SET facade for training config
+│   ├── ai_gym_server.py          # TCP server for RL agents
+│   ├── training_api.py           # Offline data collection facade
+│   ├── adapters/                 # Data extraction adapters
+│   │   ├── channel_adapter.py    # UWB channel data
+│   │   ├── filter_adapter.py     # Localization filter data
+│   │   ├── geometry_adapter.py   # Position & GDOP data
+│   │   └── energy_adapter.py     # Energy consumption data
+│   ├── collectors/               # Data buffering
+│   │   └── data_collector.py     # DataSample, DataBuffer, DataCollector
+│   └── export/                   # Multi-format export
+│       └── data_exporter.py      # JSON / CSV / NPZ / PyTorch
+│
+├── app/                          # Application entry
+│   └── localization_main.py      # Main application launcher
+│
+├── core/                         # Physics & estimation engine
+│   ├── localization/             # EKF, UKF, PF, AEKF, Trilateration
+│   ├── motion/                   # Trajectory & motion models
+│   ├── parallel/                 # GPU/CPU acceleration (ParallelUtils)
+│   └── uwb/                     # UWB channel model & CIR generation
+│       └── energy_model.py       # Hardware-aware energy calculator
+│
+├── gui/                          # User Interface (PyQt5)
+│   ├── managers/                 # State & data managers
+│   ├── panels/                   # Control panels (sidebar)
+│   ├── widgets/                  # Reusable UI widgets
+│   ├── windows/                  # Main and sub-windows
+│   └── theme.py                  # Global stylesheet
+│
+├── user_algorithms/              # User-created custom algorithms
+│   └── (auto-discovered .py)     # Plugin architecture
+│
+└── utils/                        # Shared utilities
+    └── resource_loader.py        # Asset & config loading</code></pre>
+
+                <hr>
+
+                <!-- ====== 6. EXECUTION LIFECYCLE ====== -->
+                <h3>6. Application Execution Lifecycle</h3>
+
+                <div class="mermaid-container" style="text-align:center; margin: 2rem 0;">
+                    <pre class="mermaid">
+flowchart TB
+    A["python main.py"] --> B["Set Python Path<br/>+ Windows AppID"]
+    B --> C["src.app.localization_main.main()"]
+    C --> D["QApplication + LocalizationApp"]
+    D --> E["Initialize GUI<br/>(MainWindow, Panels, Widgets)"]
+    E --> F["Load Default Scenario<br/>(Anchors, Trajectory)"]
+    F --> G{"User Action"}
+    G -->|"▶ Start"| H["SimulationManager.start()"]
+    H --> I["Timer Loop (dt = 5ms)"]
+    I --> J["Update Tag Position"]
+    J --> K["Compute Channel + Ranging"]
+    K --> L["Run Localization Algorithm"]
+    L --> M["Update GUI + Collect Data"]
+    M --> I
+    G -->|"⏸ Pause"| N["Pause Timer"]
+    G -->|"🤖 Start AI"| O["Launch AIGymServer"]
+    O --> I
+                    </pre>
+                </div>
+
+            </section>
+
+            <footer class="footer">
+                <p>&copy; 2026 PULSE Project.</p>
+            </footer>
+
+        </div>
+    </main>
+
+    <script src="script.js"></script>
+</body>
+</html>

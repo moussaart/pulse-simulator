@@ -4,6 +4,8 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>PULSE Simulator - Advanced & Architecture</title>
+    <meta name="description" content="Developer guide for extending the PULSE Simulator. Custom localization algorithms, plugin architecture, contribution guidelines, and code style.">
+    <link rel="icon" type="image/x-icon" href="../assets/logo.ico">
     <!-- Fonts managed in CSS via @import -->
     <link rel="stylesheet" href="styles.css">
 </head>
@@ -26,11 +28,13 @@
         </div>
         <ul class="nav-links">
             <li><a href="../index.html">Introduction</a></li>
-            <li><a href="getting_started.html">Getting Started</a></li>
+            <li><a href="quickstart.html">Quick Start</a></li>
             <li><a href="interface.html">User Guide</a></li>
+            <li><a href="architecture.html">Architecture</a></li>
             <li><a href="simulation.html">Technical Reference</a></li>
+            <li><a href="ai_training.html">AI Training</a></li>
+            <li><a href="api_reference.html">API Reference</a></li>
             <li><a href="advanced.html" class="active">Developer Guide</a></li>
-            <li><a href="ai_training.html">AI Training Environment</a></li>
             <li><a href="researchers.html">Researchers</a></li>
             <li><a href="license.html">License</a></li>
         </ul>
@@ -67,7 +71,7 @@
                         <p>GPU-accelerated ray tracing engine. Calculates signal paths parallelized for high throughput.</p>
                     </div>
                     <div class="card">
-                        <h4>UI (PyQt6)</h4>
+                        <h4>UI (PyQt5)</h4>
                         <p>Reactive GUI decoupled from the core logic. Updates visualization based on simulation state.</p>
                     </div>
                 </div>
@@ -133,6 +137,11 @@ class MyCustomFilter(BaseLocalizationAlgorithm):
 
 
             </section>
+
+            <footer class="footer">
+                <p>&copy; 2026 PULSE Project.</p>
+            </footer>
+
         </div>
     </main>
 

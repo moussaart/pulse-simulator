@@ -1,0 +1,568 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PULSE Simulator - API Reference</title>
+    <meta name="description" content="Complete API reference for the PULSE Simulator AI training APIs: AITrainingAPI, TrainingDataAPI, AIGymServer, and external RL client (PulseRLEnv, PulseClient). Includes TCP protocol specification.">
+    <link rel="icon" type="image/x-icon" href="../assets/logo.ico">
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+    <nav class="sidebar" id="sidebar">
+        <div class="sidebar-header">
+            <div class="logo-container">
+                <img src="assets/logo.svg" alt="PULSE Logo" class="logo-icon">
+                <div class="logo-text">PULSE</div>
+            </div>
+            <p class="subtitle">Simulator Docs v1.0</p>
+            <div class="theme-switch-wrapper">
+                <label class="theme-switch" for="checkbox">
+                    <input type="checkbox" id="checkbox" />
+                    <div class="slider round"></div>
+                </label>
+                <em>Dark Mode</em>
+            </div>
+        </div>
+        <ul class="nav-links">
+            <li><a href="../index.html">Introduction</a></li>
+            <li><a href="quickstart.html">Quick Start</a></li>
+            <li><a href="interface.html">User Guide</a></li>
+            <li><a href="architecture.html">Architecture</a></li>
+            <li><a href="simulation.html">Technical Reference</a></li>
+            <li><a href="ai_training.html">AI Training</a></li>
+            <li><a href="api_reference.html" class="active">API Reference</a></li>
+            <li><a href="advanced.html">Developer Guide</a></li>
+            <li><a href="researchers.html">Researchers</a></li>
+            <li><a href="license.html">License</a></li>
+        </ul>
+        <div class="sidebar-footer">
+             <p>&copy; 2026 PULSE Project</p>
+             <div style="margin-top: 10px; font-size: 0.85rem;">
+                <p style="margin-bottom: 5px; color: var(--text-tertiary);">Developed by <a href="https://tahamoussa.info/" target="_blank" style="font-weight: 500; color: var(--text-secondary);">Taha Moussa</a></p>
+                <div style="display: flex; gap: 10px;">
+                    <a href="https://www.linkedin.com/in/moussa-taha/" target="_blank" style="font-size: 0.8rem;">LinkedIn</a>
+                    <a href="https://github.com/moussaart" target="_blank" style="font-size: 0.8rem;">GitHub</a>
+                </div>
+             </div>
+        </div>
+    </nav>
+
+    <main class="content-wrapper">
+        <div class="content">
+            
+            <section id="api-reference" class="doc-section">
+                <h1>API Reference</h1>
+                <p class="lead">Complete reference for all PULSE APIs — internal Python modules and the TCP protocol for external RL agents.</p>
+                <hr>
+
+                <!-- TABLE OF CONTENTS -->
+                <div class="info-box" style="margin-bottom: 2rem;">
+                    <h3>On This Page</h3>
+                    <ul style="margin-bottom: 0;">
+                        <li><a href="#aitrainingapi">AITrainingAPI</a> — Configuration & data access facade</li>
+                        <li><a href="#trainingdataapi">TrainingDataAPI</a> — Offline data collection</li>
+                        <li><a href="#aigymserver">AIGymServer</a> — TCP server for RL agents</li>
+                        <li><a href="#pulserlenv">PulseRLEnv</a> — Gymnasium environment (external client)</li>
+                        <li><a href="#pulseclient">PulseClient</a> — Low-level TCP client</li>
+                        <li><a href="#tcp-protocol">TCP Protocol Specification</a> — JSON message format for any language</li>
+                    </ul>
+                </div>
+
+                <!-- ========== AITrainingAPI ========== -->
+                <h2 id="aitrainingapi">AITrainingAPI</h2>
+                <p>The primary facade for AI training interactions. Provides explicit GET/SET operations scoped exclusively to the training environment.</p>
+
+                <pre><code>from src.api import AITrainingAPI
+
+api = AITrainingAPI(sim_context=app)</code></pre>
+
+                <div class="info-box">
+                    <h3>Scope Isolation</h3>
+                    <p>All SET operations modify a <strong>training-local</strong> configuration copy. The main simulation state is <strong>never</strong> affected.</p>
+                </div>
+
+                <h4>Constructor</h4>
+                <table class="component-table">
+                    <thead>
+                        <tr><th>Parameter</th><th>Type</th><th>Description</th></tr>
+                    </thead>
+                    <tbody>
+                        <tr><td><code>sim_context</code></td><td>LocalizationApp</td><td>Reference to the main application for read-only access to simulation state</td></tr>
+                    </tbody>
+                </table>
+
+                <h4>GET Operations (Read Data)</h4>
+                <table class="component-table">
+                    <thead>
+                        <tr><th>Method</th><th>Returns</th><th>Description</th></tr>
+                    </thead>
+                    <tbody>
+                        <tr><td><code>get_num_anchors()</code></td><td><code>int</code></td><td>Number of anchors in the training environment</td></tr>
+                        <tr><td><code>get_nlos_solutions_count()</code></td><td><code>int</code></td><td>Count of anchors currently in NLOS condition</td></tr>
+                        <tr><td><code>get_algorithm_info()</code></td><td><code>dict</code></td><td>Algorithm type, measurement noise, latest measurements, error, filter params</td></tr>
+                        <tr><td><code>get_energy_info()</code></td><td><code>dict</code></td><td>Energy level, consumption breakdown, battery life estimates</td></tr>
+                        <tr><td><code>get_measurements()</code></td><td><code>list[float]</code></td><td>Latest distance measurements from all anchors</td></tr>
+                        <tr><td><code>get_error()</code></td><td><code>float</code></td><td>Latest localization error (Euclidean distance in meters)</td></tr>
+                        <tr><td><code>get_los_conditions()</code></td><td><code>list[bool]</code></td><td>LOS/NLOS per anchor (True = LOS, False = NLOS)</td></tr>
+                        <tr><td><code>get_registered_filters()</code></td><td><code>list[str]</code></td><td>All available localization filter names</td></tr>
+                        <tr><td><code>get_available_algorithms()</code></td><td><code>list[str]</code></td><td>Sorted list of all algorithm display names</td></tr>
+                        <tr><td><code>get_training_config()</code></td><td><code>dict</code></td><td>Complete training-local configuration snapshot</td></tr>
+                        <tr><td><code>get_measurement_source()</code></td><td><code>str</code></td><td>Current source: <code>"uwb"</code>, <code>"imu"</code>, or <code>"both"</code></td></tr>
+                        <tr><td><code>get_imu_data(tag)</code></td><td><code>dict</code></td><td>Latest IMU readings (acceleration, angular_velocity, enabled flag)</td></tr>
+                        <tr><td><code>get_gdop(tag, anchors)</code></td><td><code>float</code></td><td>Geometric Dilution of Precision (lower = better geometry)</td></tr>
+                        <tr><td><code>get_per_step_energy(dt)</code></td><td><code>dict</code></td><td>Instantaneous + cumulative energy data for one step</td></tr>
+                        <tr><td><code>get_full_state()</code></td><td><code>dict</code></td><td>Complete API state snapshot (config + data + energy + filters)</td></tr>
+                    </tbody>
+                </table>
+
+                <h4>Example — Algorithm Info</h4>
+                <pre><code>info = api.get_algorithm_info()
+# Returns:
+# {
+#     "algorithm_type": "Extended Kalman Filter",
+#     "measurement_noise": [0.05, 0.03, 0.08, 0.04],
+#     "measurements": [3.21, 5.67, 2.89, 4.12],
+#     "error": 0.042,
+#     "filter_params": {}
+# }</code></pre>
+
+                <h4>Example — Energy Info</h4>
+                <pre><code>energy = api.get_energy_info()
+# Returns:
+# {
+#     "energy_level": 1200.5,          # battery life in hours
+#     "energy_consumption": {...},      # power breakdown
+#     "config": {...},                  # energy configuration
+#     "accumulated": {
+#         "total_power_mW": 12.5,
+#         "battery_life_hours": 1200.5,
+#         "battery_life_days": 50.2,
+#         "total_energy_consumed_J": 0.0034
+#     }
+# }</code></pre>
+
+                <h4>SET Operations (Modify Training Configuration)</h4>
+                <table class="component-table">
+                    <thead>
+                        <tr><th>Method</th><th>Parameters</th><th>Description</th></tr>
+                    </thead>
+                    <tbody>
+                        <tr><td><code>set_num_anchors(n)</code></td><td><code>n: int</code> (≥ 1)</td><td>Set anchor count for training. Also updates energy adapter.</td></tr>
+                        <tr><td><code>set_num_stacks(n)</code></td><td><code>n: int</code> (≥ 1)</td><td>Set ranging stack count (more = better accuracy, higher energy)</td></tr>
+                        <tr><td><code>set_input_mode(mode)</code></td><td><code>mode: str</code></td><td><code>"imu"</code>, <code>"uwb"</code>, or <code>"both"</code></td></tr>
+                        <tr><td><code>set_measurement_source(source)</code></td><td><code>source: str</code></td><td>Alias for <code>set_input_mode()</code></td></tr>
+                        <tr><td><code>set_filter(name, **params)</code></td><td><code>name: str</code>, kwargs</td><td>Select localization filter and pass configuration parameters</td></tr>
+                        <tr><td><code>set_energy_profile(**kwargs)</code></td><td>kwargs</td><td>Configure: <code>ranging_mode</code>, <code>uwb_frequency_hz</code>, <code>imu_enabled</code>, <code>battery_capacity_mAh</code>, <code>voltage</code></td></tr>
+                    </tbody>
+                </table>
+
+                <h4>Example — Configure Training</h4>
+                <pre><code>api.set_num_anchors(6)
+api.set_input_mode("both")         # Fused IMU + UWB
+api.set_filter("NLOS-Aware AEKF", alpha=0.3, beta=2.0)
+api.set_energy_profile(
+    ranging_mode="DS-TWR",
+    battery_capacity_mAh=500,
+    voltage=3.3
+)</code></pre>
+
+                <h4>Observation Builder</h4>
+                <p>The <code>build_step_observation()</code> method constructs the canonical state dictionary sent to RL agents. It takes 16 parameters and returns a comprehensive observation.</p>
+                <pre><code>obs = api.build_step_observation(
+    agent_id=0, step=10, dt=0.005,
+    true_pos=[1.0, 2.0], est_pos=[1.1, 1.9],
+    tag=tag_obj, anchors=anchor_list,
+    measurements={0: 3.2, 1: 5.6, 2: 2.9},
+    los_conditions=[True, False, True, True],
+    curr_error=0.15, prev_error=0.22,
+    algorithm_name="EKF",
+    movement_speed=1.5, movement_pattern="circular",
+    channel_model=channel_conditions,
+    measurement_source="uwb",
+    active_anchor_count=3
+)</code></pre>
+
+                <hr>
+
+                <!-- ========== TrainingDataAPI ========== -->
+                <h2 id="trainingdataapi">TrainingDataAPI</h2>
+                <p>API for offline data collection — buffer simulation data and export for supervised/offline learning.</p>
+
+                <pre><code>from src.api import TrainingDataAPI
+
+api = TrainingDataAPI(buffer_size=10000)</code></pre>
+
+                <h4>Constructor</h4>
+                <table class="component-table">
+                    <thead>
+                        <tr><th>Parameter</th><th>Type</th><th>Default</th><th>Description</th></tr>
+                    </thead>
+                    <tbody>
+                        <tr><td><code>buffer_size</code></td><td><code>int</code></td><td>10000</td><td>Maximum number of samples to keep in memory</td></tr>
+                    </tbody>
+                </table>
+
+                <h4>Configuration Methods</h4>
+                <table class="component-table">
+                    <thead>
+                        <tr><th>Method</th><th>Parameters</th><th>Returns</th><th>Description</th></tr>
+                    </thead>
+                    <tbody>
+                        <tr><td><code>configure(buffer_size, **kwargs)</code></td><td><code>buffer_size: int</code></td><td><code>self</code></td><td>Reconfigure API settings. Supports method chaining.</td></tr>
+                        <tr><td><code>select_data(em, channel, snr, filter_outputs, ground_truth, imu)</code></td><td>All <code>bool</code>, default <code>True</code></td><td><code>self</code></td><td>Select which data categories to collect</td></tr>
+                    </tbody>
+                </table>
+
+                <h4>Collection Control</h4>
+                <table class="component-table">
+                    <thead>
+                        <tr><th>Method</th><th>Returns</th><th>Description</th></tr>
+                    </thead>
+                    <tbody>
+                        <tr><td><code>enable_collection()</code></td><td><code>self</code></td><td>Start collecting data into the buffer</td></tr>
+                        <tr><td><code>disable_collection()</code></td><td><code>self</code></td><td>Stop collecting (data is retained)</td></tr>
+                        <tr><td><code>reset()</code></td><td><code>self</code></td><td>Clear all collected data and reset state</td></tr>
+                        <tr><td><code>is_collecting</code></td><td><code>bool</code></td><td>Property: whether collection is currently active</td></tr>
+                    </tbody>
+                </table>
+
+                <h4>Data Access</h4>
+                <table class="component-table">
+                    <thead>
+                        <tr><th>Method</th><th>Returns</th><th>Description</th></tr>
+                    </thead>
+                    <tbody>
+                        <tr><td><code>get_latest_sample()</code></td><td><code>DataSample | None</code></td><td>Most recent collected sample</td></tr>
+                        <tr><td><code>get_buffer()</code></td><td><code>list[DataSample]</code></td><td>All samples currently in the buffer</td></tr>
+                        <tr><td><code>get_sample_count()</code></td><td><code>int</code></td><td>Number of collected samples</td></tr>
+                        <tr><td><code>get_synchronized_data(start_time, end_time)</code></td><td><code>list[dict]</code></td><td>Flat dictionaries (for pandas: <code>pd.DataFrame(data)</code>)</td></tr>
+                        <tr><td><code>get_statistics()</code></td><td><code>dict</code></td><td>Collection stats: error mean/std, SNR, LOS percentage</td></tr>
+                    </tbody>
+                </table>
+
+                <h4>Export Methods</h4>
+                <table class="component-table">
+                    <thead>
+                        <tr><th>Method</th><th>Parameters</th><th>Description</th></tr>
+                    </thead>
+                    <tbody>
+                        <tr><td><code>export_to_file(path, format)</code></td><td><code>path: str</code>, <code>format: "npz"|"csv"|"json"</code></td><td>Export collected data to file</td></tr>
+                        <tr><td><code>export_for_pytorch(path)</code></td><td><code>path: str</code> (directory)</td><td>Export as separate .npy files for features, anchors, targets</td></tr>
+                    </tbody>
+                </table>
+
+                <h4>Streaming (Real-Time Callbacks)</h4>
+                <table class="component-table">
+                    <thead>
+                        <tr><th>Method</th><th>Parameters</th><th>Description</th></tr>
+                    </thead>
+                    <tbody>
+                        <tr><td><code>stream_to_callback(callback)</code></td><td><code>callback: Callable[[DataSample], None]</code></td><td>Register a callback for each new sample (useful for online learning)</td></tr>
+                        <tr><td><code>stop_streaming(callback=None)</code></td><td><code>callback</code> or <code>None</code></td><td>Stop specific callback, or all if None</td></tr>
+                    </tbody>
+                </table>
+
+                <h4>Complete Usage Example</h4>
+                <pre><code>from src.api import TrainingDataAPI
+
+# 1. Configure
+api = TrainingDataAPI(buffer_size=50000)
+api.select_data(
+    channel=True,
+    filter_outputs=True,
+    ground_truth=True,
+    imu=True,
+    snr=True
+)
+
+# 2. Start collecting
+api.enable_collection()
+
+# ... simulation runs for N steps ...
+# (SimulationManager calls api.collect_sample() each step)
+
+# 3. Check statistics
+stats = api.get_statistics()
+print(f"Collected {stats['sample_count']} samples")
+print(f"Mean error: {stats['mean_error']:.3f} m")
+print(f"LOS: {stats['los_percentage']:.1f}%")
+
+# 4. Export
+api.export_to_file("training_data.npz")       # NumPy compressed
+api.export_to_file("training_data.csv", "csv") # Spreadsheet
+api.export_for_pytorch("./pytorch_data/")      # PyTorch-ready
+
+# 5. Convert to pandas
+import pandas as pd
+df = pd.DataFrame(api.get_synchronized_data())
+print(df.describe())</code></pre>
+
+                <hr>
+
+                <!-- ========== AIGymServer ========== -->
+                <h2 id="aigymserver">AIGymServer</h2>
+                <p>Bidirectional TCP server acting as a Gymnasium environment backend. Sends observations to an external RL client and receives actions.</p>
+
+                <pre><code>from src.api.ai_gym_server import AIGymServer
+
+server = AIGymServer(port=5555)
+server.start()</code></pre>
+
+                <h4>Constructor</h4>
+                <table class="component-table">
+                    <thead>
+                        <tr><th>Parameter</th><th>Type</th><th>Default</th><th>Description</th></tr>
+                    </thead>
+                    <tbody>
+                        <tr><td><code>port</code></td><td><code>int</code></td><td>5555</td><td>TCP port to listen on</td></tr>
+                    </tbody>
+                </table>
+                <p>The server binds to <code>0.0.0.0</code> (all interfaces) so remote agents can connect.</p>
+
+                <h4>Properties</h4>
+                <table class="component-table">
+                    <thead>
+                        <tr><th>Property</th><th>Type</th><th>Description</th></tr>
+                    </thead>
+                    <tbody>
+                        <tr><td><code>connected</code></td><td><code>bool</code></td><td>Whether a client is currently connected</td></tr>
+                        <tr><td><code>protocol_version</code></td><td><code>int</code></td><td>Current protocol version (currently 2)</td></tr>
+                    </tbody>
+                </table>
+
+                <h4>Methods</h4>
+                <table class="component-table">
+                    <thead>
+                        <tr><th>Method</th><th>Parameters</th><th>Returns</th><th>Description</th></tr>
+                    </thead>
+                    <tbody>
+                        <tr><td><code>start()</code></td><td>—</td><td><code>None</code></td><td>Start TCP server in a background thread</td></tr>
+                        <tr><td><code>stop()</code></td><td>—</td><td><code>None</code></td><td>Stop server and close all connections</td></tr>
+                        <tr><td><code>send_state(state_data)</code></td><td><code>state_data: dict | list[dict]</code></td><td><code>bool</code></td><td>Send observation to client. Automatically injects <code>protocol_version</code>.</td></tr>
+                        <tr><td><code>wait_for_action(timeout=None)</code></td><td><code>timeout: float | None</code></td><td><code>tuple[action, metrics] | None</code></td><td>Block until the client responds with an action. Returns <code>None</code> on timeout or disconnect.</td></tr>
+                    </tbody>
+                </table>
+
+                <hr>
+
+                <!-- ========== PulseRLEnv ========== -->
+                <h2 id="pulserlenv">PulseRLEnv (External Client)</h2>
+                <p>Standard <a href="https://gymnasium.farama.org/" target="_blank">Gymnasium</a> environment wrapper that connects to the PULSE Simulator. Install from the <code>external_ai_client/</code> package.</p>
+
+                <pre><code># Install the package
+cd external_ai_client
+pip install -e .
+
+# Use in your code
+from pulse_ai_client import PulseRLEnv</code></pre>
+
+                <h4>Constructor</h4>
+                <table class="component-table">
+                    <thead>
+                        <tr><th>Parameter</th><th>Type</th><th>Default</th><th>Description</th></tr>
+                    </thead>
+                    <tbody>
+                        <tr><td><code>port</code></td><td><code>int</code></td><td>5555</td><td>TCP port to connect to</td></tr>
+                        <tr><td><code>num_anchors</code></td><td><code>int</code></td><td>8</td><td>Number of anchors (defines action/observation space dimensions)</td></tr>
+                    </tbody>
+                </table>
+
+                <h4>Spaces</h4>
+                <table class="component-table">
+                    <thead>
+                        <tr><th>Space</th><th>Type</th><th>Shape</th><th>Description</th></tr>
+                    </thead>
+                    <tbody>
+                        <tr><td><strong>Observation</strong></td><td><code>Box(-100, 100)</code></td><td><code>(num_anchors * 2 + 1,)</code></td><td>Flattened anchor positions [x₁, y₁, x₂, y₂, ...] + localization error</td></tr>
+                        <tr><td><strong>Action</strong></td><td><code>MultiBinary</code></td><td><code>(num_anchors,)</code></td><td>Binary mask: 1 = use this anchor, 0 = drop it</td></tr>
+                    </tbody>
+                </table>
+
+                <h4>Enriched State (via <code>info["full_state"]</code>)</h4>
+                <p>Each <code>step()</code> call returns an <code>info</code> dict containing <code>full_state</code> with comprehensive data:</p>
+                <table class="component-table">
+                    <thead>
+                        <tr><th>Field</th><th>Type</th><th>Description</th></tr>
+                    </thead>
+                    <tbody>
+                        <tr><td><code>tag_position_gt</code></td><td><code>[x, y, z]</code></td><td>Ground truth tag position</td></tr>
+                        <tr><td><code>tag_position_estimated</code></td><td><code>[x, y]</code></td><td>Estimated position from localization</td></tr>
+                        <tr><td><code>measurements.uwb_ranges</code></td><td><code>float[]</code></td><td>UWB distance measurements per anchor</td></tr>
+                        <tr><td><code>measurements.true_distances</code></td><td><code>float[]</code></td><td>True distances per anchor</td></tr>
+                        <tr><td><code>measurements.source</code></td><td><code>str</code></td><td><code>"uwb"</code>, <code>"imu"</code>, or <code>"both"</code></td></tr>
+                        <tr><td><code>imu_data.acceleration</code></td><td><code>[ax, ay, az]</code></td><td>Accelerometer readings (m/s²)</td></tr>
+                        <tr><td><code>imu_data.angular_velocity</code></td><td><code>[gx, gy, gz]</code></td><td>Gyroscope readings (rad/s)</td></tr>
+                        <tr><td><code>nlos_info.is_los</code></td><td><code>bool[]</code></td><td>LOS/NLOS per anchor</td></tr>
+                        <tr><td><code>nlos_info.nlos_count</code></td><td><code>int</code></td><td>Number of NLOS anchors</td></tr>
+                        <tr><td><code>precision.localization_error</code></td><td><code>float</code></td><td>Current error (meters)</td></tr>
+                        <tr><td><code>precision.gdop</code></td><td><code>float</code></td><td>Geometric Dilution of Precision</td></tr>
+                        <tr><td><code>energy.step_energy_uJ</code></td><td><code>float</code></td><td>Energy consumed this step (µJ)</td></tr>
+                        <tr><td><code>energy.battery_life_hours</code></td><td><code>float</code></td><td>Estimated battery life</td></tr>
+                        <tr><td><code>energy.ranging_mode</code></td><td><code>str</code></td><td><code>"SS-TWR"</code> or <code>"DS-TWR"</code></td></tr>
+                        <tr><td><code>environment.dt</code></td><td><code>float</code></td><td>Simulation time step (seconds)</td></tr>
+                    </tbody>
+                </table>
+
+                <h4>Usage Example</h4>
+                <pre><code>from pulse_ai_client import PulseRLEnv
+
+env = PulseRLEnv(port=5555, num_anchors=8)
+obs, info = env.reset()
+
+for step in range(1000):
+    action = env.action_space.sample()  # Replace with your RL model
+    obs, reward, terminated, truncated, info = env.step(action)
+
+    # Access enriched state
+    state = info["full_state"]
+    print(f"Error: {state.error:.3f}m")
+    print(f"NLOS anchors: {state.nlos_info.nlos_count}")
+    print(f"Energy: {state.energy.step_energy_uJ:.1f} µJ")
+
+env.close()</code></pre>
+
+                <hr>
+
+                <!-- ========== PulseClient ========== -->
+                <h2 id="pulseclient">PulseClient (Low-Level)</h2>
+                <p>Raw TCP client for custom integrations when the Gymnasium wrapper is not needed.</p>
+
+                <pre><code>from pulse_ai_client import PulseClient
+
+with PulseClient(port=5555) as client:
+    states = client.receive_state()
+    for state in states:
+        print(f"Agent {state.agent_id}: pos={state.tag_position_gt}")
+    client.send_action([[0, 1, 3]])  # Use anchors 0, 1, 3</code></pre>
+
+                <hr>
+
+                <!-- ========== TCP PROTOCOL ========== -->
+                <h2 id="tcp-protocol">TCP Protocol Specification</h2>
+                <p>For building RL clients in <strong>any language</strong> (JavaScript, C++, Rust, etc.), you can communicate directly with the <code>AIGymServer</code> over TCP using newline-delimited JSON.</p>
+
+                <h4>Connection</h4>
+                <ul>
+                    <li><strong>Host:</strong> <code>localhost</code> (or the simulator's IP for remote connections)</li>
+                    <li><strong>Port:</strong> <code>5555</code> (default, configurable in the GUI)</li>
+                    <li><strong>Protocol:</strong> TCP, newline-delimited JSON (<code>\n</code> as message separator)</li>
+                </ul>
+
+                <h4>Server → Client (State Message)</h4>
+                <p>The simulator sends one JSON object per line. Each object contains:</p>
+                <pre><code>{
+  "protocol_version": 2,
+  "agent_id": 0,
+  "step": 42,
+  "timestamp": 0.21,
+
+  "tag_position_gt": [1.5, 2.3, 0.0],
+  "tag_position_estimated": [1.48, 2.35],
+  "localization_error": 0.058,
+
+  "anchor_positions": [[0,0], [10,0], [10,10], [0,10]],
+  "anchor_ids": [0, 1, 2, 3],
+
+  "measurements": {
+    "source": "uwb",
+    "uwb_ranges": [3.21, 5.67, 2.89, 4.12],
+    "true_distances": [3.18, 5.60, 2.85, 4.08]
+  },
+
+  "imu_data": {
+    "acceleration": [0.02, -0.01, 9.81],
+    "angular_velocity": [0.0, 0.0, 0.05],
+    "enabled": true
+  },
+
+  "nlos_info": {
+    "is_los": [true, false, true, true],
+    "nlos_count": 1,
+    "nlos_anchor_ids": [1]
+  },
+
+  "algorithm": {
+    "name": "Extended Kalman Filter",
+    "available_algorithms": ["EKF", "UKF", "Trilateration"],
+    "filter_params": {}
+  },
+
+  "precision": {
+    "localization_error": 0.058,
+    "gdop": 2.4,
+    "measurement_noise_stds": [0.05, 0.12, 0.04, 0.06]
+  },
+
+  "energy": {
+    "total_power_mW": 12.5,
+    "step_energy_uJ": 62.5,
+    "battery_life_hours": 1200.5,
+    "ranging_mode": "SS-TWR"
+  },
+
+  "environment": {
+    "dt": 0.005,
+    "movement_speed": 1.5,
+    "movement_pattern": "circular",
+    "measurement_source": "uwb"
+  }
+}</code></pre>
+
+                <h4>Client → Server (Action Message)</h4>
+                <p>Your agent sends a JSON object per line:</p>
+                <pre><code>// Protocol v2 — send selected anchor indices
+{"action": [0, 1, 3]}
+
+// Protocol v1 (legacy) — send binary mask
+{"anchor_mask": [1, 1, 0, 1]}</code></pre>
+
+                <h4>cURL Example (for Testing)</h4>
+                <pre><code># Connect with netcat (Linux/macOS)
+nc localhost 5555
+
+# Connect with PowerShell (Windows)
+$client = New-Object System.Net.Sockets.TcpClient("localhost", 5555)
+$stream = $client.GetStream()
+$reader = New-Object System.IO.StreamReader($stream)
+$line = $reader.ReadLine()
+Write-Host $line</code></pre>
+
+                <h4>JavaScript Client Example</h4>
+                <pre><code>const net = require('net');
+
+const client = new net.Socket();
+client.connect(5555, 'localhost', () => {
+    console.log('Connected to PULSE Simulator');
+});
+
+let buffer = '';
+client.on('data', (data) => {
+    buffer += data.toString();
+    const lines = buffer.split('\n');
+    buffer = lines.pop(); // Keep incomplete line
+    
+    for (const line of lines) {
+        if (!line.trim()) continue;
+        const state = JSON.parse(line);
+        console.log(`Step ${state.step}: error=${state.localization_error}m`);
+        
+        // Send action: use all anchors
+        const action = { action: [0, 1, 2, 3] };
+        client.write(JSON.stringify(action) + '\n');
+    }
+});</code></pre>
+
+            </section>
+
+            <footer class="footer">
+                <p>&copy; 2026 PULSE Project.</p>
+            </footer>
+
+        </div>
+    </main>
+
+    <script src="script.js"></script>
+</body>
+</html>
