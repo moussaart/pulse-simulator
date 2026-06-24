@@ -1,6 +1,35 @@
 document.addEventListener('DOMContentLoaded', () => {
     
     /* ===========================
+       Centralized Download Link Logic
+       =========================== */
+    // Resolve correct path to config.js based on how script.js is loaded
+    const scripts = document.getElementsByTagName('script');
+    let configPath = 'config.js';
+    for (let i = 0; i < scripts.length; i++) {
+        const src = scripts[i].getAttribute('src');
+        if (src && src.includes('script.js')) {
+            if (src.startsWith('documentation/')) {
+                configPath = 'documentation/config.js';
+            }
+            break;
+        }
+    }
+
+    // Dynamically load config.js and update all download links
+    const configScript = document.createElement('script');
+    configScript.src = configPath;
+    configScript.onload = () => {
+        if (typeof PULSE_CONFIG !== 'undefined' && PULSE_CONFIG.downloadUrl) {
+            const downloadLinks = document.querySelectorAll('.pulse-download-link');
+            downloadLinks.forEach(link => {
+                link.href = PULSE_CONFIG.downloadUrl;
+            });
+        }
+    };
+    document.head.appendChild(configScript);
+
+    /* ===========================
        Dark Mode Logic 
        =========================== */
     const toggleSwitch = document.querySelector('.theme-switch input[type="checkbox"]');

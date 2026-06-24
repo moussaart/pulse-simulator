@@ -66,7 +66,7 @@ This project combines a robust physics-based simulation engine with a modular Gr
 
 **Option 1 — Using the Installer (Windows)**
 
-Download and run the provided `PULSE_Installer.exe`. The installer will configure the environment automatically.
+Download and run the provided `PULSE_Simulator.exe`. The installer will configure the environment automatically.
 
 **Option 2 — Manual Installation**
 
@@ -300,7 +300,7 @@ PULSE-project/
 ├── tests/                      # Unit & integration tests
 │
 ├── dist/                       # Built executables
-│   └── PULSE_Installer.exe
+│   └── PULSE_Simulator.exe
 │
 ├── requirements.txt            # Python dependencies
 ├── main.py                     # Application entry point

@@ -244,33 +244,9 @@ class SimulationManager:
                         algorithm_name=self.parent.algorithm
                     )
                 
-                # Record snapshot for timeline playback
-                self.recorder.record_snapshot(
-                    timestamp=self.simulation_time,
-                    tag_position=(self.parent.tag.position.x, self.parent.tag.position.y),
-                    estimated_position=estimated_pos,
-                    error=error,
-                    anchors=self.parent.anchors,
-                    channel_conditions=self.parent.channel_conditions,
-                    measurements=measurements,
-                    los_cache=self._frame_los_cache
-                )
-                
-                # Update elapsed time display if available
-                if hasattr(self.parent, 'elapsed_time_display') and self.parent.elapsed_time_display:
-                    max_str = f"{self.max_duration:.2f}s" if self.max_duration else "∞"
-                    self.parent.elapsed_time_display.setText(f"{self.simulation_time:.2f}s / {max_str}")
-                
-                # Update timeline widget in real-time
-                if hasattr(self.parent, 'timeline_widget') and self.parent.timeline_widget:
-                    max_time = self.max_duration if self.max_duration else self.simulation_time
-                    self.parent.timeline_widget.set_time_range(0, max_time)
-                    self.parent.timeline_widget.set_current_time(self.simulation_time, emit_signal=False)
-                
-                # Update visualizations (pass cached LOS)
-                self.update_visualizations(estimated_pos, error, measurements, frame_los_results)
-                
                 # --- Dynamic Energy Calculation ---
+                energy_consumed_J = 0.0
+                total_power_mW = 0.0
                 if hasattr(self.parent, 'energy_calculator'):
                     calc = self.parent.energy_calculator
                     algo = self.parent.algorithm.lower()
@@ -287,11 +263,41 @@ class SimulationManager:
                     calc.config.imu_enabled = uses_imu
                     
                     # Calculate and accumulate for this timestep
-                    calc.calculate_step(self.parent.dt)
+                    energy_result = calc.calculate_step(self.parent.dt)
+                    energy_consumed_J = energy_result.total_energy_consumed_J
+                    total_power_mW = energy_result.total_power_mW
                     
                     # Trigger UI update
                     if hasattr(self.parent, 'update_energy_displays'):
                         self.parent.update_energy_displays()
+
+                # Record snapshot for timeline playback
+                self.recorder.record_snapshot(
+                    timestamp=self.simulation_time,
+                    tag_position=(self.parent.tag.position.x, self.parent.tag.position.y),
+                    estimated_position=estimated_pos,
+                    error=error,
+                    anchors=self.parent.anchors,
+                    channel_conditions=self.parent.channel_conditions,
+                    measurements=measurements,
+                    los_cache=self._frame_los_cache,
+                    energy_consumed_J=energy_consumed_J,
+                    total_power_mW=total_power_mW
+                )
+                
+                # Update elapsed time display if available
+                if hasattr(self.parent, 'elapsed_time_display') and self.parent.elapsed_time_display:
+                    max_str = f"{self.max_duration:.2f}s" if self.max_duration else "∞"
+                    self.parent.elapsed_time_display.setText(f"{self.simulation_time:.2f}s / {max_str}")
+                
+                # Update timeline widget in real-time
+                if hasattr(self.parent, 'timeline_widget') and self.parent.timeline_widget:
+                    max_time = self.max_duration if self.max_duration else self.simulation_time
+                    self.parent.timeline_widget.set_time_range(0, max_time)
+                    self.parent.timeline_widget.set_current_time(self.simulation_time, emit_signal=False)
+                
+                # Update visualizations (pass cached LOS)
+                self.update_visualizations(estimated_pos, error, measurements, frame_los_results)
                 
                 # Update GPU status panel rate-limited (every 20 frames)
                 if self._frame_count % 20 == 0:

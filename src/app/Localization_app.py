@@ -1855,11 +1855,56 @@ class LocalizationApp(QMainWindow):
                         f.write(f"{data.timestamps[i]},{data.acc_x[i]},{data.acc_y[i]},{data.acc_z[i]},"
                                 f"{data.gyro_x[i]},{data.gyro_y[i]},{data.gyro_z[i]}\n")
             
-            # 3. Export Simulation Results
+            # 3. Export Energy Profile
+            if hasattr(self, 'energy_calculator'):
+                energy_file = os.path.join(export_dir, "energy_profile.txt")
+                with open(energy_file, "w") as f:
+                    f.write(f"Energy Profile Export - {timestamp}\n")
+                    f.write("="*50 + "\n\n")
+                    
+                    res = self.energy_calculator.calculate()
+                    f.write(f"Device Name: {res.device_name}\n")
+                    f.write(f"Ranging Mode: {res.ranging_mode}\n")
+                    f.write(f"UWB Frequency: {res.uwb_frequency_hz} Hz\n")
+                    f.write(f"Number of Anchors: {res.num_anchors}\n\n")
+                    
+                    f.write("Per-Message Energy:\n")
+                    f.write("-" * 20 + "\n")
+                    f.write(f"TX Message: {res.energy_per_tx_message_uJ:.2f} µJ\n")
+                    f.write(f"RX Message: {res.energy_per_rx_message_uJ:.2f} µJ\n")
+                    f.write(f"Processing: {res.energy_per_processing_message_uJ:.2f} µJ\n\n")
+                    
+                    f.write("Per-Ranging Energy:\n")
+                    f.write("-" * 20 + "\n")
+                    f.write(f"Total per Ranging: {res.energy_per_ranging_uJ:.2f} µJ\n")
+                    f.write(f"Messages per Ranging: {res.messages_per_ranging} ({res.tx_messages_per_ranging} TX, {res.rx_messages_per_ranging} RX)\n\n")
+                    
+                    f.write("Continuous Power Breakdown:\n")
+                    f.write("-" * 20 + "\n")
+                    f.write(f"UWB Active Power: {res.uwb_active_power_mW:.2f} mW\n")
+                    f.write(f"Tag Idle Power: {res.tag_idle_power_mW:.2f} mW\n")
+                    f.write(f"IMU Power: {res.imu_power_mW:.2f} mW\n")
+                    f.write(f"Total Power: {res.total_power_mW:.2f} mW\n")
+                    f.write(f"Total Current: {res.total_current_mA:.2f} mA\n")
+                    f.write(f"Duty Cycle: {res.duty_cycle_percent:.2f} %\n\n")
+                    
+                    f.write("Simulation Totals & Battery:\n")
+                    f.write("-" * 20 + "\n")
+                    f.write(f"Total Energy Consumed: {res.total_energy_consumed_J:.6f} J\n")
+                    
+                    if res.battery_life_days < 1:
+                        batt_str = f"{res.battery_life_hours:.1f} hours"
+                    elif res.battery_life_days > 365:
+                        batt_str = f"{(res.battery_life_days / 365):.1f} years"
+                    else:
+                        batt_str = f"{res.battery_life_days:.1f} days"
+                    f.write(f"Est. Battery Life (225 mAh): {batt_str}\n")
+            
+            # 4. Export Simulation Results
             results_file = os.path.join(export_dir, "simulation_results.csv")
             with open(results_file, "w") as f:
                 # Header
-                header = "Timestamp,True_X,True_Y,Est_X,Est_Y,Error"
+                header = "Timestamp,True_X,True_Y,Est_X,Est_Y,Error,Energy_Consumed_J,Total_Power_mW"
                 # Add columns for each anchor
                 for anchor in self.anchors:
                     header += f",Dist_{anchor.id},NLOS_{anchor.id}"
@@ -1869,7 +1914,9 @@ class LocalizationApp(QMainWindow):
                 snapshots = self.simulation_manager.recorder.snapshots
                 for snap in snapshots:
                     line = f"{snap.timestamp},{snap.tag_position[0]},{snap.tag_position[1]}," \
-                           f"{snap.estimated_position[0]},{snap.estimated_position[1]},{snap.error}"
+                           f"{snap.estimated_position[0]},{snap.estimated_position[1]},{snap.error}," \
+                           f"{getattr(snap, 'energy_consumed_J', 0.0):.6f}," \
+                           f"{getattr(snap, 'total_power_mW', 0.0):.2f}"
                     
                     # Add anchor data
                     # Create a map for quick lookup

@@ -106,3 +106,19 @@ def seed_user_data():
             # Create at least the essential subdirectories
             for subdir in ['trajectories', 'configs', 'exports', 'maps']:
                 os.makedirs(os.path.join(target_data_dir, subdir), exist_ok=True)
+
+    # Seed src/user_algorithms/ directory
+    bundled_algo_dir = os.path.join(sys._MEIPASS, 'src', 'user_algorithms')
+    if os.path.exists(bundled_algo_dir):
+        target_algo_dir = os.path.join(user_data_dir, 'src', 'user_algorithms')
+        os.makedirs(target_algo_dir, exist_ok=True)
+        try:
+            for filename in os.listdir(bundled_algo_dir):
+                src_file = os.path.join(bundled_algo_dir, filename)
+                dst_file = os.path.join(target_algo_dir, filename)
+                # Only copy if it is a python file and does not already exist in target
+                if os.path.isfile(src_file) and filename.endswith('.py') and not os.path.exists(dst_file):
+                    shutil.copy2(src_file, dst_file)
+                    print(f"Seeded algorithm: {filename}")
+        except Exception as e:
+            print(f"Warning: Could not seed user algorithms: {e}")

@@ -65,6 +65,7 @@ class EnergyConfig:
     tx_duration_us: float = 200.0       # Duration of one TX frame
     rx_duration_us: float = 300.0       # Duration of one RX window
     processing_duration_us: float = 10.0  # MCU processing per message
+    processing_current_mA: float = 12.0   # MCU current during processing (defaults to idle)
 
     # ── Ranging Protocol ──────────────────────────────────────────────────
     ranging_mode: str = "SS-TWR"        # "SS-TWR" or "DS-TWR"
@@ -118,6 +119,7 @@ class EnergyResult:
     # ── Per-message ───────────────────────────────────────────────────────
     energy_per_tx_message_uJ: float = 0.0
     energy_per_rx_message_uJ: float = 0.0
+    energy_per_processing_message_uJ: float = 0.0  # MCU processing per message
 
     # ── Per-ranging exchange ──────────────────────────────────────────────
     energy_per_ranging_uJ: float = 0.0
@@ -153,6 +155,7 @@ class EnergyResult:
         return {
             "energy_per_tx_message_uJ": round(self.energy_per_tx_message_uJ, 4),
             "energy_per_rx_message_uJ": round(self.energy_per_rx_message_uJ, 4),
+            "energy_per_processing_message_uJ": round(self.energy_per_processing_message_uJ, 4),
             "energy_per_ranging_uJ": round(self.energy_per_ranging_uJ, 4),
             "messages_per_ranging": self.messages_per_ranging,
             "tx_messages_per_ranging": self.tx_messages_per_ranging,
@@ -231,22 +234,19 @@ class EnergyCalculator:
         mode = cfg.get_ranging_mode()
 
         # --- Per-message energy (µJ) ---
-        # E = V × I × t   (V in V, I in mA → mW, t in µs → µJ)
-        e_tx = cfg.voltage * cfg.tx_current_mA * cfg.tx_duration_us * 1e-6  # µJ
-        e_rx = cfg.voltage * cfg.rx_current_mA * cfg.rx_duration_us * 1e-6  # µJ
-        # Convert from mW·s to µJ:  1 mW·µs = 1e-6 mW·s = 1e-3 µJ  … actually
-        # V * mA = mW;  mW * µs = µW·s = nJ? Let me be precise.
-        # V(V) * I(mA) = P(mW);  P(mW) * t(µs) = E(mW·µs) = E(nJ) = E(µJ)*1e-3
-        # So: E(µJ) = V * I_mA * t_us * 1e-3
+        # E(µJ) = V(V) × I(mA) × t(µs) × 1e-3
         e_tx = cfg.voltage * cfg.tx_current_mA * cfg.tx_duration_us * 1e-3  # µJ
         e_rx = cfg.voltage * cfg.rx_current_mA * cfg.rx_duration_us * 1e-3  # µJ
+        e_proc = cfg.voltage * cfg.processing_current_mA * cfg.processing_duration_us * 1e-3  # µJ
 
         # --- Messages per ranging ---
         tx_msgs, rx_msgs = _PROTOCOL_MSG_COUNT.get(mode, (1, 1))
         total_msgs = tx_msgs + rx_msgs
 
         # --- Energy per single ranging exchange (one anchor) ---
-        e_ranging = e_tx * tx_msgs + e_rx * rx_msgs  # µJ
+        # TX + RX radio energy plus MCU processing energy per message
+        e_ranging = (e_tx * tx_msgs + e_rx * rx_msgs
+                     + e_proc * total_msgs)  # µJ
 
         # --- Active time per ranging (seconds) ---
         t_active_per_ranging_s = (
@@ -295,6 +295,7 @@ class EnergyCalculator:
         return EnergyResult(
             energy_per_tx_message_uJ=e_tx,
             energy_per_rx_message_uJ=e_rx,
+            energy_per_processing_message_uJ=e_proc,
             energy_per_ranging_uJ=e_ranging,
             messages_per_ranging=total_msgs,
             tx_messages_per_ranging=tx_msgs,
