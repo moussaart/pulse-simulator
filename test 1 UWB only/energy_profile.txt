@@ -1,0 +1,32 @@
+Energy Profile Export - 20260629_163319
+==================================================
+
+Device Name: Custom / DW1000 Default
+Ranging Mode: SS-TWR
+UWB Frequency: 200.0 Hz
+Number of Anchors: 3
+
+Per-Message Energy:
+--------------------
+TX Message: 46.20 µJ
+RX Message: 108.90 µJ
+Processing: 0.40 µJ
+
+Per-Ranging Energy:
+--------------------
+Total per Ranging: 155.89 µJ
+Messages per Ranging: 2 (1 TX, 1 RX)
+
+Continuous Power Breakdown:
+--------------------
+UWB Active Power: 93.54 mW
+Tag Idle Power: 27.24 mW
+IMU Power: 0.00 mW
+Total Power: 120.78 mW
+Total Current: 36.60 mA
+Duty Cycle: 31.20 %
+
+Simulation Totals & Battery:
+--------------------
+Total Energy Consumed: 2.414996 J
+Est. Battery Life (225 mAh): 6.1 hours

@@ -710,27 +710,26 @@ class SimulationManager:
                 self.parent.aekf_R = self.parent.adaptive_iekf_prev_R
                 return position
                 
+            elif "IMU-UWB AEKF" in self.parent.algorithm:
+                result = method(
+                    measurements=measurements,
+                    tag=self.parent.tag,
+                    anchors=self.parent.anchors,
+                    state=self.parent.imu_state,
+                    P=self.parent.imu_P,
+                    initialized=self.parent.kf_initialized,
+                    alpha=self.parent.los_aware_alpha,
+                    dt=self.parent.dt,
+                    zupt_threshold=0.08,
+                    R=self.parent.aekf_R,
+                    Q=getattr(self.parent, 'aekf_Q', None)
+                )
+                (position, self.parent.imu_state, self.parent.imu_P, 
+                 self.parent.kf_initialized, self.parent.aekf_Q,
+                 self.parent.aekf_R) = result
+                return position
+
             elif "NLOS-Aware" in self.parent.algorithm:
-                if "IMU assisted NLOS-Aware AEKF" in self.parent.algorithm:
-                    result = method(
-                        measurements=measurements,
-                        tag=self.parent.tag,
-                        anchors=self.parent.anchors,
-                        state=self.parent.imu_state,
-                        P=self.parent.imu_P,
-                        initialized=self.parent.kf_initialized,
-                        is_los=is_los,
-                        alpha=self.parent.los_aware_alpha,
-                        beta=self.parent.los_aware_beta,
-                        nlos_factor=self.parent.los_aware_nlos_factor,
-                        dt=self.parent.dt,
-                        zupt_threshold=0.05,
-                        R=self.parent.aekf_R
-                    )
-                    (position, self.parent.imu_state, self.parent.imu_P, 
-                     self.parent.kf_initialized, self.parent.aekf_R) = result
-                    return position
-                    
                 result = method(
                     measurements=measurements,
                     tag=self.parent.tag,

@@ -8,8 +8,8 @@ class Alghortimes_doc():
         self.algorithm_methods = {
             "Trilateration": LocalizationAlgorthimes.trilateration,
             "NLOS-Aware AEKF": LocalizationAlgorthimes.Nlos_aware_aekf,
-            "IMU Only": LocalizationAlgorthimes.imu_only_filter,
-            "IMU assisted NLOS-Aware AEKF": LocalizationAlgorthimes.IMU_assisted_Nlos_aware_aekf,
+            "IMU-UWB AEKF": LocalizationAlgorthimes.imu_uwb_aekf,
+            "Duty Cycled IMU-UWB AEKF": LocalizationAlgorthimes.duty_cycled_imu_uwb_aekf,
         }
         
         # Load custom algorithms only once

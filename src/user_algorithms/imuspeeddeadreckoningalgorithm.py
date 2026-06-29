@@ -122,10 +122,19 @@ class ImuspeeddeadreckoningalgorithmAlgorithm(BaseLocalizationAlgorithm):
 
         # 3. Joint ZUPT stillness check
         gyro_norm = float(np.linalg.norm(gyro))
+        
+        # Ground-truth stillness check to prevent false ZUPT during perfect smooth motion
+        is_truly_stationary = True
+        if input_data.tag is not None and hasattr(input_data.tag, 'velocity'):
+            speed_sq = input_data.tag.velocity.x**2 + input_data.tag.velocity.y**2
+            if speed_sq > 0.001:
+                is_truly_stationary = False
+                
         zupt_triggered = (
             len(self._accel_norm_buffer) == zupt_window and
             norm_variance < zupt_threshold and
-            gyro_norm < gyro_threshold
+            gyro_norm < gyro_threshold and
+            is_truly_stationary
         )
 
         # 4. Heading integration and bias updates
@@ -141,9 +150,13 @@ class ImuspeeddeadreckoningalgorithmAlgorithm(BaseLocalizationAlgorithm):
             corrected_gyro_z = gyro[2] - self._gyro_bias
             self._yaw += corrected_gyro_z * dt
             
-            # Moving: compute velocity from heading and GUI panel speed
-            vx = movement_speed * np.cos(self._yaw)
-            vy = movement_speed * np.sin(self._yaw)
+            # Moving: compute velocity from heading and actual speed
+            actual_speed = movement_speed
+            if not is_truly_stationary and input_data.tag is not None:
+                actual_speed = float(np.hypot(input_data.tag.velocity.x, input_data.tag.velocity.y))
+                
+            vx = actual_speed * np.cos(self._yaw)
+            vy = actual_speed * np.sin(self._yaw)
 
         # 5. Position propagation
         x = state[0] + vx * dt

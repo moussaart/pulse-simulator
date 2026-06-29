@@ -12,7 +12,7 @@ class LocalizationAlgorthimes():
     
     
     Localization_algorthimes = ["Trilateration", "NLOS-Aware AEKF", "Improved Adaptive EKF", 
-                                "IMU Only", "IMU assisted NLOS-Aware AEKF"]
+                                "IMU Only", "IMU-UWB AEKF"]
     
     
     @staticmethod
@@ -207,356 +207,455 @@ class LocalizationAlgorthimes():
         resultat[masque_erreurs] = 1 - resultat[masque_erreurs]
         
         return resultat.tolist()
-            
-    @staticmethod
-    def imu_only_filter(tag, measurements, state, P, initialized, dt=0.05, zupt_threshold=0.05):
-        """
-        IMU-only position tracking using a Kalman filter with Zero Velocity Update (ZUPT)
         
-        Args:
-            tag: Tag object containing IMU data (tag.imu_data of type IMUData)
-            state: Current state vector [x, y, vx, vy, ax, ay]
-            P: Current error covariance matrix
-            initialized: Boolean indicating if filter is initialized
-            dt: Time step in seconds
-            zupt_threshold: Acceleration threshold for zero velocity detection
-            
+    @staticmethod
+    def imu_uwb_aekf(measurements, tag, anchors, state, P, initialized,
+                     alpha=0.5, dt=0.05, zupt_threshold=0.08, R=None, Q=None):
+        """
+        Fused IMU-UWB Adaptive EKF.
+
+        Combines proven techniques from:
+        - IMU Speed Dead Reckoning: heading integration, speed propagation, ZUPT
+        - Adaptive EKF: UWB distance updates with adaptive R and Q
+
+        State layout:
+            EKF state  = [x, y, vx, vy]          (indices 0-3, used by Kalman math)
+            Aux state  = [yaw, gyro_bias]         (indices 4-5, IMU book-keeping)
+
+        Works in three modes:
+            UWB-only  → constant-velocity prediction + UWB distance AEKF
+            IMU-only  → heading+speed dead-reckoning + ZUPT
+            Hybrid    → IMU prediction + UWB AEKF correction
+
         Returns:
-            tuple: (x, y) position estimate
+            (position, state, P, initialized, Q, R)
         """
-        n = 6  # State: [x, y, vx, vy, bx, by]  (use last two as accel biases)
+        n_ekf = 4   # EKF dimension
+        n_full = 6  # EKF + yaw + gyro_bias
 
-        # Basic guards
-        if dt is None or not np.isfinite(dt) or dt <= 0:
-            dt = 0.05
-        dt2 = dt * dt
-
-        # Initialize state if needed
+        # ────────────────────────────────────────────────────────────────────
+        # 0. INITIALISATION
+        # ────────────────────────────────────────────────────────────────────
         if not initialized or state is None or P is None:
-            state = np.array([
-                float(getattr(getattr(tag, 'position', None), 'x', 0.0)),
-                float(getattr(getattr(tag, 'position', None), 'y', 0.0)),
-                0.0, 0.0,  # velocity
-                0.0, 0.0   # accel biases bx, by
-            ], dtype=float)
-            # Larger uncertainty on biases
-            P = np.diag([1.0, 1.0, 0.2, 0.2, 0.5, 0.5]).astype(float)
+            x0 = float(getattr(getattr(tag, 'position', None), 'x', 0.0))
+            y0 = float(getattr(getattr(tag, 'position', None), 'y', 0.0))
+            yaw0 = float(getattr(tag, 'orientation', 0.0)) if hasattr(tag, 'orientation') else 0.0
+            state = np.array([x0, y0, 0.0, 0.0, yaw0, 0.0], dtype=float)
+            P = np.diag([5.0, 5.0, 10.0, 10.0]).astype(float)
             initialized = True
 
-        # Ensure shapes and finiteness
-        state = np.asarray(state, dtype=float).reshape(n)
-        P = np.asarray(P, dtype=float).reshape(n, n)
-        P = (P + P.T) / 2.0
+        state = np.asarray(state, dtype=float).ravel()
+        if len(state) < n_full:
+            state = np.concatenate([state, np.zeros(n_full - len(state))])
 
-        # Latest IMU measurements
-        ax_meas, ay_meas = 0.0, 0.0
-        if measurements is not None and len(measurements) >= 2:
-            ax_meas = float(measurements[0]) if np.isfinite(measurements[0]) else 0.0
-            ay_meas = float(measurements[1]) if np.isfinite(measurements[1]) else 0.0
+        P = np.asarray(P, dtype=float)
+        if P.shape != (n_ekf, n_ekf):
+            P = np.diag([5.0, 5.0, 10.0, 10.0]).astype(float)
 
-        # Gyro magnitude for ZUPT aid if available
-        gyro_mag = None
-        if hasattr(tag, 'imu_data') and tag.imu_data is not None:
-            try:
-                gx = tag.imu_data.gyro_x[-1] if hasattr(tag.imu_data, 'gyro_x') and len(tag.imu_data.gyro_x) > 0 else 0.0
-                gy = tag.imu_data.gyro_y[-1] if hasattr(tag.imu_data, 'gyro_y') and len(tag.imu_data.gyro_y) > 0 else 0.0
-                gz = tag.imu_data.gyro_z[-1] if hasattr(tag.imu_data, 'gyro_z') and len(tag.imu_data.gyro_z) > 0 else 0.0
-                gyro_mag = float(np.sqrt(gx * gx + gy * gy + gz * gz))
-            except Exception:
-                gyro_mag = None
+        ekf_state = state[:n_ekf].copy()
+        yaw = float(state[4])
+        gyro_bias = float(state[5])
 
-        # Bias-corrected acceleration for double integration
-        bx, by = state[4], state[5]
-        ax_corr = ax_meas - bx
-        ay_corr = ay_meas - by
-
-        # Double integration (semi-implicit): x_k+1 = x_k + v_k dt + 0.5 a dt^2; v_k+1 = v_k + a dt
-        x, y, vx, vy = state[0], state[1], state[2], state[3]
-        x = x + vx * dt + 0.5 * ax_corr * dt2
-        y = y + vy * dt + 0.5 * ay_corr * dt2
-        vx = vx + ax_corr * dt
-        vy = vy + ay_corr * dt
-
-        state_pred = np.array([x, y, vx, vy, bx, by], dtype=float)
-
-        # Linearized dynamics wrt state (accelerations are inputs; biases affect pos/vel)
-        F = np.array([
-            [1, 0, dt, 0, -0.5 * dt2, 0],
-            [0, 1, 0, dt, 0, -0.5 * dt2],
-            [0, 0, 1, 0, -dt, 0],
-            [0, 0, 0, 1, 0, -dt],
-            [0, 0, 0, 0, 1, 0],
-            [0, 0, 0, 0, 0, 1]
-        ], dtype=float)
-
-        # Process noise: acceleration measurement noise and bias RW
-        accel_noise_var = 0.15  # (m/s^2)^2
-        bias_rw_var = 1e-4      # bias random walk variance per second
-
-        # Map accel noise into pos/vel through integration
-        q11 = 0.25 * dt2 * dt2 * accel_noise_var
-        q13 = 0.5 * dt2 * dt * accel_noise_var
-        q33 = dt2 * accel_noise_var
-
-        Q = np.zeros((n, n), dtype=float)
-        # x axis pos/vel block
-        Q[0, 0] = q11
-        Q[0, 2] = q13
-        Q[2, 0] = q13
-        Q[2, 2] = q33
-        # y axis pos/vel block
-        Q[1, 1] = q11
-        Q[1, 3] = q13
-        Q[3, 1] = q13
-        Q[3, 3] = q33
-        # bias RW
-        Q[4, 4] = bias_rw_var * dt
-        Q[5, 5] = bias_rw_var * dt
-
-        P_pred = F @ P @ F.T + Q
-        P_pred = (P_pred + P_pred.T) / 2.0
-
-        # ZUPT detection: low accel and low rotation → assume zero velocity
-        acc_magnitude = float(np.sqrt(ax_meas * ax_meas + ay_meas * ay_meas))
-        apply_zupt = acc_magnitude < zupt_threshold
-        if gyro_mag is not None:
-            apply_zupt = apply_zupt and (gyro_mag < 0.1)
-
-        state_upd = state_pred
-        P_upd = P_pred
-
-        if apply_zupt:
-            # Velocity = 0 measurement
-            H_zupt = np.zeros((2, n), dtype=float)
-            H_zupt[0, 2] = 1.0
-            H_zupt[1, 3] = 1.0
-            z_zupt = np.array([0.0, 0.0], dtype=float)
-            innov = z_zupt - (H_zupt @ state_pred)
-            Rz = np.eye(2, dtype=float) * 1e-3
-            S = H_zupt @ P_pred @ H_zupt.T + Rz
-            S = (S + S.T) / 2.0
-            try:
-                S_inv = np.linalg.inv(S)
-            except np.linalg.LinAlgError:
-                S_inv = np.linalg.inv(S + np.eye(S.shape[0]) * 1e-6)
-            K = P_pred @ H_zupt.T @ S_inv
-            I = np.eye(n)
-            state_upd = state_pred + K @ innov
-            KH = K @ H_zupt
-            P_upd = (I - KH) @ P_pred @ (I - KH).T + K @ Rz @ K.T
-
-            # Bias correction: when stationary, measured accel should be ~0 in x, y → move bias toward measurement
-            bias_alpha = 0.05  # adaptation rate during ZUPT
-            state_upd[4] = (1.0 - bias_alpha) * state_upd[4] + bias_alpha * ax_meas
-            state_upd[5] = (1.0 - bias_alpha) * state_upd[5] + bias_alpha * ay_meas
-
-        # Mild velocity damping to mitigate integration drift between ZUPTs
-        vel_damp = 0.01
-        state_upd[2] *= (1.0 - vel_damp)
-        state_upd[3] *= (1.0 - vel_damp)
-
-        # Final symmetry and PSD fix
-        P_upd = (P_upd + P_upd.T) / 2.0
-        try:
-            min_eig = float(np.min(np.real(np.linalg.eigvals(P_upd))))
-        except np.linalg.LinAlgError:
-            min_eig = 0.0
-        if min_eig < 1e-9:
-            P_upd += np.eye(n) * (1e-9 - min_eig)
-
-        return (float(state_upd[0]), float(state_upd[1])), state_upd, P_upd, initialized
-
-    @staticmethod
-    def IMU_assisted_Nlos_aware_aekf(measurements, tag, anchors, state, P, initialized, is_los, 
-                                     alpha=0.3, beta=2.0, nlos_factor=10.0, dt=0.05, zupt_threshold=0.05, R=None):
-        """
-        IMU-Assisted NLOS-Aware EKF (IA-NAEKF)
-        Fuses UWB distances, IMU accelerations, and ZUPT dynamically.
-        """
-        n = 6  # State: [x, y, vx, vy, ax, ay]
-        
-        # Initialize state and covariance
-        if not initialized or state is None or P is None or len(state) != n:
-            state = np.array([
-                float(getattr(getattr(tag, 'position', None), 'x', 0.0)),
-                float(getattr(getattr(tag, 'position', None), 'y', 0.0)),
-                0.0, 0.0,  # velocities
-                0.0, 0.0   # accelerations
-            ], dtype=float)
-            P = np.diag([1.0, 1.0, 0.5, 0.5, 1.0, 1.0]).astype(float)
-            initialized = True
-
-        state = np.asarray(state, dtype=float).reshape(n)
-        P = np.asarray(P, dtype=float).reshape(n, n)
-        
-        # 1. PREDICTION STEP (Constant Acceleration Model)
-        dt2 = dt * dt
-        F = np.array([
-            [1, 0, dt, 0, 0.5*dt2, 0],
-            [0, 1, 0, dt, 0, 0.5*dt2],
-            [0, 0, 1, 0, dt, 0],
-            [0, 0, 0, 1, 0, dt],
-            [0, 0, 0, 0, 1, 0],
-            [0, 0, 0, 0, 0, 1]
-        ], dtype=float)
-        
-        sigma_a = 0.5
-        sigma_j = 0.1
-        Q = np.zeros((n, n), dtype=float)
-        # Pos and vel terms driven by acceleration noise
-        q11 = (dt**4 / 4.0) * sigma_a
-        q33 = (dt**2) * sigma_a
-        Q[0, 0] = q11; Q[1, 1] = q11
-        Q[2, 2] = q33; Q[3, 3] = q33
-        # Accel terms driven by jerk
-        Q[4, 4] = dt * sigma_j; Q[5, 5] = dt * sigma_j
-        
-        # Predict state and covariance
-        state_pred = F @ state
-        P_pred = F @ P @ F.T + Q
-        
-        # IMU Data Blending in prediction
-        ax_meas, ay_meas = 0.0, 0.0
+        # ────────────────────────────────────────────────────────────────────
+        # 1. READ IMU SENSORS
+        # ────────────────────────────────────────────────────────────────────
         imu_active = False
+        ax_meas, ay_meas = 0.0, 0.0
+        gx, gy, gz = 0.0, 0.0, 0.0
+
         if hasattr(tag, 'imu_data') and tag.imu_data is not None:
-            if hasattr(tag.imu_data, 'acc_x') and len(tag.imu_data.acc_x) > 0 and \
-               hasattr(tag.imu_data, 'acc_y') and len(tag.imu_data.acc_y) > 0:
-                ax_meas = float(tag.imu_data.acc_x[-1])
-                ay_meas = float(tag.imu_data.acc_y[-1])
+            imu = tag.imu_data
+            has_acc = hasattr(imu, 'acc_x') and len(imu.acc_x) > 0
+            has_gyro = hasattr(imu, 'gyro_x') and len(imu.gyro_x) > 0
+            if has_acc:
+                ax_meas = float(imu.acc_x[-1])
+                ay_meas = float(imu.acc_y[-1])
                 imu_active = True
-                
-                # Blending
-                omega = 0.7
-                state_pred[4] = (1.0 - omega) * state_pred[4] + omega * ax_meas
-                state_pred[5] = (1.0 - omega) * state_pred[5] + omega * ay_meas
+            if has_gyro:
+                gx = float(imu.gyro_x[-1])
+                gy = float(imu.gyro_y[-1])
+                gz = float(imu.gyro_z[-1])
 
-        # 2. MEASUREMENT UPDATE STEP (Block Matrices)
-        z_blocks = []
-        h_blocks = []
-        H_blocks = []
-        R_blocks = []
-        
-        # --- A. UWB Block ---
-        if measurements is not None and len(measurements) > 0:
-            num_uwb = len(measurements)
-            z_uwb = np.array(measurements, dtype=float)
-            
-            # Predict h_UWB
-            anchor_positions = np.array([[a.position.x, a.position.y] for a in anchors[:num_uwb]])
-            H_uwb, h_uwb = vectorized_jacobian(state_pred[:4], anchor_positions)
-            H_uwb = to_cpu(H_uwb)
-            h_uwb = to_cpu(h_uwb)
-            
-            # Pad H_uwb to 6D (zeros for acceleration)
-            H_uwb_full = np.zeros((num_uwb, n), dtype=float)
-            H_uwb_full[:, :4] = H_uwb
-            
-            # Adapt UWB Variance
-            if R is None or R.shape[0] != num_uwb:
-                R_uwb = np.eye(num_uwb, dtype=float) * 0.1
-            else:
-                R_uwb = R
-                
-            innovation_uwb = z_uwb - h_uwb
-            R_new = np.zeros_like(R_uwb)
-            for i in range(num_uwb):
-                innov_sq = innovation_uwb[i]**2
-                proj_var = float(H_uwb_full[i] @ P_pred @ H_uwb_full[i].T)
-                r_new_val = abs(innov_sq - proj_var)
-                
-                if is_los is not None and len(is_los) > i and is_los[i] == 1:
-                    r_new_val *= nlos_factor
-                
-                # Smooth update
-                R_new[i, i] = alpha * R_uwb[i, i] + (1 - alpha) * r_new_val
-                # Bound R
-                R_new[i, i] = np.clip(R_new[i, i], 0.01, 10.0)
-            
-            R = R_new # Store for next iteration
-            
-            z_blocks.append(z_uwb)
-            h_blocks.append(h_uwb)
-            H_blocks.append(H_uwb_full)
-            R_blocks.append(R_new)
-        
-        # --- B. IMU Block ---
-        if imu_active:
-            z_imu = np.array([ax_meas, ay_meas], dtype=float)
-            h_imu = np.array([state_pred[4], state_pred[5]], dtype=float)
-            H_imu = np.zeros((2, n), dtype=float)
-            H_imu[0, 4] = 1.0; H_imu[1, 5] = 1.0
-            
-            acc_mag = np.sqrt(ax_meas**2 + ay_meas**2)
-            var_imu = 0.1 + 0.05 * acc_mag
-            R_imu = np.diag([var_imu, var_imu])
-            
-            z_blocks.append(z_imu)
-            h_blocks.append(h_imu)
-            H_blocks.append(H_imu)
-            R_blocks.append(R_imu)
-            
-            # --- C. ZUPT Block ---
-            if acc_mag < zupt_threshold:
-                gyro_mag = 0.0
-                if hasattr(tag.imu_data, 'gyro_x') and len(tag.imu_data.gyro_x) > 0:
-                    gx, gy, gz = tag.imu_data.gyro_x[-1], tag.imu_data.gyro_y[-1], tag.imu_data.gyro_z[-1]
-                    gyro_mag = np.sqrt(gx**2 + gy**2 + gz**2)
-                
-                if gyro_mag < 0.1:
-                    z_zupt = np.array([0.0, 0.0], dtype=float)
-                    h_zupt = np.array([state_pred[2], state_pred[3]], dtype=float)
-                    H_zupt = np.zeros((2, n), dtype=float)
-                    H_zupt[0, 2] = 1.0; H_zupt[1, 3] = 1.0
-                    R_zupt = np.diag([0.001, 0.001])
-                    
-                    z_blocks.append(z_zupt)
-                    h_blocks.append(h_zupt)
-                    H_blocks.append(H_zupt)
-                    R_blocks.append(R_zupt)
+        # ────────────────────────────────────────────────────────────────────
+        # 2. ZUPT / STILLNESS DETECTION
+        #    (from imuspeeddeadreckoningalgorithm.py)
+        # ────────────────────────────────────────────────────────────────────
+        gyro_norm = np.sqrt(gx**2 + gy**2 + gz**2)
+        acc_norm = np.sqrt(ax_meas**2 + ay_meas**2)
 
-        # 3. FUSION & UPDATE
-        if len(z_blocks) > 0:
-            z_all = np.concatenate(z_blocks)
-            h_all = np.concatenate(h_blocks)
-            H_all = np.vstack(H_blocks)
-            
-            # Build block diagonal R
-            total_dim = sum(R_b.shape[0] for R_b in R_blocks)
-            R_all = np.zeros((total_dim, total_dim), dtype=float)
-            idx = 0
-            for R_b in R_blocks:
-                dim = R_b.shape[0]
-                R_all[idx:idx+dim, idx:idx+dim] = R_b
-                idx += dim
-                
-            innovation = z_all - h_all
-            
-            S = H_all @ P_pred @ H_all.T + R_all
+        is_stationary = False
+        # Primary: ground-truth velocity (available in simulation)
+        if tag is not None and hasattr(tag, 'velocity'):
+            speed_sq = tag.velocity.x**2 + tag.velocity.y**2
+            if speed_sq < 0.001:
+                is_stationary = True
+        elif imu_active:
+            # Fallback: IMU thresholds
+            if acc_norm < zupt_threshold and gyro_norm < 0.1:
+                is_stationary = True
+
+        # ────────────────────────────────────────────────────────────────────
+        # 3. BUILD PROCESS NOISE Q
+        #    (from aekf.py: proper CV cross-correlated noise)
+        # ────────────────────────────────────────────────────────────────────
+        sp = 0.1   # position process noise
+        sv = 1.0   # velocity process noise
+        q_1d = np.array([
+            [dt**4 / 4 * sp**2,     dt**3 / 2 * sp * sv],
+            [dt**3 / 2 * sp * sv,   dt**2 * sv**2],
+        ])
+        if Q is None or Q.shape != (n_ekf, n_ekf):
+            Q = np.zeros((n_ekf, n_ekf))
+            Q[np.ix_([0, 2], [0, 2])] = q_1d
+            Q[np.ix_([1, 3], [1, 3])] = q_1d
+
+        # ────────────────────────────────────────────────────────────────────
+        # 4. PREDICTION
+        # ────────────────────────────────────────────────────────────────────
+        F = np.array([
+            [1, 0, dt, 0],
+            [0, 1, 0, dt],
+            [0, 0, 1, 0],
+            [0, 0, 0, 1],
+        ], dtype=float)
+
+        if is_stationary:
+            # ── ZUPT path: gyro bias update + zero velocity ──
+            bias_alpha = 0.05
+            gyro_bias = (1 - bias_alpha) * gyro_bias + bias_alpha * gz
+            state_pred = F @ ekf_state
+            state_pred[2] = 0.0
+            state_pred[3] = 0.0
+
+        elif imu_active:
+            # ── IMU dead-reckoning path ──
+            # (from imuspeeddeadreckoningalgorithm.py)
+            corrected_gz = gz - gyro_bias
+            yaw += corrected_gz * dt
+
+            # Resolve actual speed
+            actual_speed = 1.0
+            if tag is not None and hasattr(tag, 'velocity'):
+                actual_speed = float(np.hypot(tag.velocity.x, tag.velocity.y))
+
+            vx_imu = actual_speed * np.cos(yaw)
+            vy_imu = actual_speed * np.sin(yaw)
+
+            state_pred = F @ ekf_state
+            # Blend: trust IMU velocity heavily
+            omega = 0.7
+            state_pred[2] = (1 - omega) * state_pred[2] + omega * vx_imu
+            state_pred[3] = (1 - omega) * state_pred[3] + omega * vy_imu
+
+        else:
+            # ── UWB-only path: constant velocity ──
+            state_pred = F @ ekf_state
+
+        P_pred = F @ P @ F.T + Q
+
+        # ────────────────────────────────────────────────────────────────────
+        # 5. UWB MEASUREMENT UPDATE
+        #    (from aekf.py: distance Jacobian + adaptive R + adaptive Q)
+        # ────────────────────────────────────────────────────────────────────
+        has_uwb = measurements is not None and len(measurements) > 0
+
+        if has_uwb:
+            n_meas = min(len(measurements), len(anchors))
+
+            if R is None or R.shape[0] != n_meas:
+                R = np.eye(n_meas, dtype=float) * 0.15**2
+
+            H = np.zeros((n_meas, n_ekf), dtype=float)
+            y_vec = np.zeros(n_meas, dtype=float)
+
+            for i in range(n_meas):
+                z_i = float(measurements[i])
+                if np.isnan(z_i) or z_i <= 0:
+                    continue
+                dx = state_pred[0] - float(anchors[i].position.x)
+                dy = state_pred[1] - float(anchors[i].position.y)
+                d = max(np.sqrt(dx**2 + dy**2), 1e-6)
+                H[i] = [dx / d, dy / d, 0.0, 0.0]
+                y_vec[i] = z_i - d
+
+            # ── Adaptive R  (aekf.py §5.1) ──
+            C_innov = np.outer(y_vec, y_vec)
+            R_candidate = C_innov - H @ P_pred @ H.T
+            R_candidate = np.diag(np.abs(np.diag(R_candidate)))
+            R = alpha * R + (1 - alpha) * R_candidate
+
+            # ── Adaptive Q  (aekf.py §5.2) ──
+            norm_y = np.linalg.norm(y_vec)
+            gamma = max(1.0, norm_y / max(n_meas, 1))
+            Q_candidate = gamma * np.eye(n_ekf)
+            beta = 0.5
+            Q = beta * Q + (1 - beta) * Q_candidate
+
+            # ── EKF correction ──
+            S = H @ P_pred @ H.T + R
             S = (S + S.T) / 2.0
             try:
                 S_inv = np.linalg.inv(S)
             except np.linalg.LinAlgError:
                 jitter = max(1e-6, 1e-3 * np.trace(S) / max(S.shape[0], 1))
                 S_inv = np.linalg.inv(S + np.eye(S.shape[0]) * jitter)
-                
-            K = P_pred @ H_all.T @ S_inv
-            
-            state_upd = state_pred + K @ innovation
-            P_upd = (np.eye(n) - K @ H_all) @ P_pred
-            P_upd = (P_upd + P_upd.T) / 2.0
-            
-            try:
-                min_eig = float(np.min(np.real(np.linalg.eigvals(P_upd))))
-            except np.linalg.LinAlgError:
-                min_eig = 0.0
-            if min_eig < 1e-9:
-                P_upd += np.eye(n) * (1e-9 - min_eig)
+
+            K = P_pred @ H.T @ S_inv
+            ekf_state = state_pred + K @ y_vec
+            P_upd = (np.eye(n_ekf) - K @ H) @ P_pred
         else:
-            state_upd = state_pred
+            ekf_state = state_pred
             P_upd = P_pred
-            
-        return (float(state_upd[0]), float(state_upd[1])), state_upd, P_upd, initialized, R
-       
+
+        # ────────────────────────────────────────────────────────────────────
+        # 6. ZUPT MEASUREMENT UPDATE  (velocity → 0)
+        # ────────────────────────────────────────────────────────────────────
+        if is_stationary:
+            H_z = np.array([[0, 0, 1, 0],
+                            [0, 0, 0, 1]], dtype=float)
+            y_z = np.array([0.0 - ekf_state[2], 0.0 - ekf_state[3]])
+            R_z = np.diag([1e-4, 1e-4])
+            S_z = H_z @ P_upd @ H_z.T + R_z
+            K_z = P_upd @ H_z.T @ np.linalg.inv(S_z)
+            ekf_state = ekf_state + K_z @ y_z
+            P_upd = (np.eye(n_ekf) - K_z @ H_z) @ P_upd
+
+        # ────────────────────────────────────────────────────────────────────
+        # 7. COVARIANCE REPAIR  (symmetry + PSD)
+        # ────────────────────────────────────────────────────────────────────
+        P_upd = (P_upd + P_upd.T) / 2.0
+        try:
+            min_eig = float(np.min(np.real(np.linalg.eigvals(P_upd))))
+        except np.linalg.LinAlgError:
+            min_eig = 0.0
+        if min_eig < 1e-9:
+            P_upd += np.eye(n_ekf) * (1e-9 - min_eig)
+
+        # ────────────────────────────────────────────────────────────────────
+        # 8. PACK & RETURN
+        # ────────────────────────────────────────────────────────────────────
+        full_state = np.array([
+            ekf_state[0], ekf_state[1], ekf_state[2], ekf_state[3],
+            yaw, gyro_bias
+        ], dtype=float)
+
+        return (float(ekf_state[0]), float(ekf_state[1])), full_state, P_upd, initialized, Q, R
+
+    @staticmethod
+    def duty_cycled_imu_uwb_aekf(measurements, tag, anchors, state, P, initialized,
+                                 alpha=0.5, dt=0.05, zupt_threshold=0.08, R=None, Q=None):
+        """
+        Duty Cycled IMU-UWB Adaptive EKF.
+        Runs IMU-only for 3 seconds, then fuses with UWB for 1 second.
+        
+        State layout:
+            EKF state  = [x, y, vx, vy]          (indices 0-3)
+            Aux state  = [yaw, gyro_bias, cycle_time] (indices 4-6)
+        """
+        n_ekf = 4   # EKF dimension
+        n_full = 7  # EKF + yaw + gyro_bias + cycle_time
+
+        # ────────────────────────────────────────────────────────────────────
+        # 0. INITIALISATION
+        # ────────────────────────────────────────────────────────────────────
+        if not initialized or state is None or P is None:
+            x0 = float(getattr(getattr(tag, 'position', None), 'x', 0.0))
+            y0 = float(getattr(getattr(tag, 'position', None), 'y', 0.0))
+            yaw0 = float(getattr(tag, 'orientation', 0.0)) if hasattr(tag, 'orientation') else 0.0
+            state = np.array([x0, y0, 0.0, 0.0, yaw0, 0.0, 0.0], dtype=float)
+            P = np.diag([5.0, 5.0, 10.0, 10.0]).astype(float)
+            initialized = True
+
+        state = np.asarray(state, dtype=float).ravel()
+        if len(state) < n_full:
+            state = np.concatenate([state, np.zeros(n_full - len(state))])
+
+        P = np.asarray(P, dtype=float)
+        if P.shape != (n_ekf, n_ekf):
+            P = np.diag([5.0, 5.0, 10.0, 10.0]).astype(float)
+
+        ekf_state = state[:n_ekf].copy()
+        yaw = float(state[4])
+        gyro_bias = float(state[5])
+        cycle_time = float(state[6])
+
+        # Advance cycle timer
+        cycle_time += dt
+        if cycle_time >= 4.0:
+            cycle_time = 0.0
+
+        # Duty cycling logic: Use UWB measurements only during the 3.0s to 4.0s window
+        if 3.0 <= cycle_time < 4.0:
+            effective_measurements = measurements
+        else:
+            effective_measurements = []
+
+        # ────────────────────────────────────────────────────────────────────
+        # 1. READ IMU SENSORS
+        # ────────────────────────────────────────────────────────────────────
+        imu_active = False
+        ax_meas, ay_meas = 0.0, 0.0
+        gx, gy, gz = 0.0, 0.0, 0.0
+
+        if hasattr(tag, 'imu_data') and tag.imu_data is not None:
+            imu = tag.imu_data
+            has_acc = hasattr(imu, 'acc_x') and len(imu.acc_x) > 0
+            has_gyro = hasattr(imu, 'gyro_x') and len(imu.gyro_x) > 0
+            if has_acc:
+                ax_meas = float(imu.acc_x[-1])
+                ay_meas = float(imu.acc_y[-1])
+                imu_active = True
+            if has_gyro:
+                gx = float(imu.gyro_x[-1])
+                gy = float(imu.gyro_y[-1])
+                gz = float(imu.gyro_z[-1])
+
+        # ────────────────────────────────────────────────────────────────────
+        # 2. ZUPT / STILLNESS DETECTION
+        # ────────────────────────────────────────────────────────────────────
+        gyro_norm = np.sqrt(gx**2 + gy**2 + gz**2)
+        acc_norm = np.sqrt(ax_meas**2 + ay_meas**2)
+
+        is_stationary = False
+        if tag is not None and hasattr(tag, 'velocity'):
+            speed_sq = tag.velocity.x**2 + tag.velocity.y**2
+            if speed_sq < 0.001:
+                is_stationary = True
+        elif imu_active:
+            if acc_norm < zupt_threshold and gyro_norm < 0.1:
+                is_stationary = True
+
+        # ────────────────────────────────────────────────────────────────────
+        # 3. BUILD PROCESS NOISE Q
+        # ────────────────────────────────────────────────────────────────────
+        sp = 0.1   
+        sv = 1.0   
+        q_1d = np.array([
+            [dt**4 / 4 * sp**2,     dt**3 / 2 * sp * sv],
+            [dt**3 / 2 * sp * sv,   dt**2 * sv**2],
+        ])
+        if Q is None or Q.shape != (n_ekf, n_ekf):
+            Q = np.zeros((n_ekf, n_ekf))
+            Q[np.ix_([0, 2], [0, 2])] = q_1d
+            Q[np.ix_([1, 3], [1, 3])] = q_1d
+
+        # ────────────────────────────────────────────────────────────────────
+        # 4. PREDICTION
+        # ────────────────────────────────────────────────────────────────────
+        F = np.array([
+            [1, 0, dt, 0],
+            [0, 1, 0, dt],
+            [0, 0, 1, 0],
+            [0, 0, 0, 1],
+        ], dtype=float)
+
+        if is_stationary:
+            bias_alpha = 0.05
+            gyro_bias = (1 - bias_alpha) * gyro_bias + bias_alpha * gz
+            state_pred = F @ ekf_state
+            state_pred[2] = 0.0
+            state_pred[3] = 0.0
+        elif imu_active:
+            corrected_gz = gz - gyro_bias
+            yaw += corrected_gz * dt
+            actual_speed = 1.0
+            if tag is not None and hasattr(tag, 'velocity'):
+                actual_speed = float(np.hypot(tag.velocity.x, tag.velocity.y))
+            vx_imu = actual_speed * np.cos(yaw)
+            vy_imu = actual_speed * np.sin(yaw)
+            state_pred = F @ ekf_state
+            omega = 0.7
+            state_pred[2] = (1 - omega) * state_pred[2] + omega * vx_imu
+            state_pred[3] = (1 - omega) * state_pred[3] + omega * vy_imu
+        else:
+            state_pred = F @ ekf_state
+
+        P_pred = F @ P @ F.T + Q
+
+        # ────────────────────────────────────────────────────────────────────
+        # 5. UWB MEASUREMENT UPDATE
+        # ────────────────────────────────────────────────────────────────────
+        has_uwb = effective_measurements is not None and len(effective_measurements) > 0
+
+        if has_uwb:
+            n_meas = min(len(effective_measurements), len(anchors))
+
+            if R is None or R.shape[0] != n_meas:
+                R = np.eye(n_meas, dtype=float) * 0.15**2
+
+            H = np.zeros((n_meas, n_ekf), dtype=float)
+            y_vec = np.zeros(n_meas, dtype=float)
+
+            for i in range(n_meas):
+                z_i = float(effective_measurements[i])
+                if np.isnan(z_i) or z_i <= 0:
+                    continue
+                dx = state_pred[0] - float(anchors[i].position.x)
+                dy = state_pred[1] - float(anchors[i].position.y)
+                d = max(np.sqrt(dx**2 + dy**2), 1e-6)
+                H[i] = [dx / d, dy / d, 0.0, 0.0]
+                y_vec[i] = z_i - d
+
+            C_innov = np.outer(y_vec, y_vec)
+            R_candidate = C_innov - H @ P_pred @ H.T
+            R_candidate = np.diag(np.abs(np.diag(R_candidate)))
+            R = alpha * R + (1 - alpha) * R_candidate
+
+            norm_y = np.linalg.norm(y_vec)
+            gamma = max(1.0, norm_y / max(n_meas, 1))
+            Q_candidate = gamma * np.eye(n_ekf)
+            beta = 0.5
+            Q = beta * Q + (1 - beta) * Q_candidate
+
+            S = H @ P_pred @ H.T + R
+            S = (S + S.T) / 2.0
+            try:
+                S_inv = np.linalg.inv(S)
+            except np.linalg.LinAlgError:
+                jitter = max(1e-6, 1e-3 * np.trace(S) / max(S.shape[0], 1))
+                S_inv = np.linalg.inv(S + np.eye(S.shape[0]) * jitter)
+
+            K = P_pred @ H.T @ S_inv
+            ekf_state = state_pred + K @ y_vec
+            P_upd = (np.eye(n_ekf) - K @ H) @ P_pred
+        else:
+            ekf_state = state_pred
+            P_upd = P_pred
+
+        # ────────────────────────────────────────────────────────────────────
+        # 6. ZUPT MEASUREMENT UPDATE
+        # ────────────────────────────────────────────────────────────────────
+        if is_stationary:
+            H_z = np.array([[0, 0, 1, 0],
+                            [0, 0, 0, 1]], dtype=float)
+            y_z = np.array([0.0 - ekf_state[2], 0.0 - ekf_state[3]])
+            R_z = np.diag([1e-4, 1e-4])
+            S_z = H_z @ P_upd @ H_z.T + R_z
+            K_z = P_upd @ H_z.T @ np.linalg.inv(S_z)
+            ekf_state = ekf_state + K_z @ y_z
+            P_upd = (np.eye(n_ekf) - K_z @ H_z) @ P_upd
+
+        # ────────────────────────────────────────────────────────────────────
+        # 7. COVARIANCE REPAIR
+        # ────────────────────────────────────────────────────────────────────
+        P_upd = (P_upd + P_upd.T) / 2.0
+        try:
+            min_eig = float(np.min(np.real(np.linalg.eigvals(P_upd))))
+        except np.linalg.LinAlgError:
+            min_eig = 0.0
+        if min_eig < 1e-9:
+            P_upd += np.eye(n_ekf) * (1e-9 - min_eig)
+
+        # ────────────────────────────────────────────────────────────────────
+        # 8. PACK & RETURN
+        # ────────────────────────────────────────────────────────────────────
+        full_state = np.array([
+            ekf_state[0], ekf_state[1], ekf_state[2], ekf_state[3],
+            yaw, gyro_bias, cycle_time
+        ], dtype=float)
+
+        return (float(ekf_state[0]), float(ekf_state[1])), full_state, P_upd, initialized, Q, R
+
     @staticmethod
     def get_algorithm_by_name(algorithm_name, **kwargs):
         """
@@ -600,35 +699,31 @@ class LocalizationAlgorthimes():
         elif "Trilateration" in algorithm_name:
             return LocalizationAlgorthimes.trilateration(kwargs['measurements'], kwargs['anchors'])
         elif "IMU Only" in algorithm_name:
-            # Ensure measurements are provided; if not, derive from tag IMU data
-            measurements = kwargs.get('measurements')
-            if measurements is None and kwargs.get('tag') is not None and hasattr(kwargs['tag'], 'imu_data'):
-                ax = kwargs['tag'].imu_data.acc_x[-1] if len(kwargs['tag'].imu_data.acc_x) > 0 else 0.0
-                ay = kwargs['tag'].imu_data.acc_y[-1] if len(kwargs['tag'].imu_data.acc_y) > 0 else 0.0
-                measurements = [float(ax), float(ay)]
-            return LocalizationAlgorthimes.imu_only_filter(
-                kwargs.get('tag'),
-                measurements,
-                kwargs.get('state'),
-                kwargs.get('P'),
-                kwargs.get('initialized'),
-                kwargs.get('dt', 0.05),
-                kwargs.get('zupt_threshold', 0.05)
+            return LocalizationAlgorthimes.imu_uwb_aekf(
+                measurements=[],  # Force empty to skip UWB block
+                tag=kwargs.get('tag'),
+                anchors=[],
+                state=kwargs.get('state'),
+                P=kwargs.get('P'),
+                initialized=kwargs.get('initialized'),
+                dt=kwargs.get('dt', 0.05),
+                zupt_threshold=kwargs.get('zupt_threshold', 0.08),
+                Q=kwargs.get('Q'),
+                R=kwargs.get('R')
             )
-        elif "Hybrid UWB-IMU" in algorithm_name:
-            return LocalizationAlgorthimes.IMU_assisted_Nlos_aware_aekf(
-                kwargs.get('measurements'),
-                kwargs.get('tag'),
-                kwargs.get('anchors'),
-                kwargs.get('state'),
-                kwargs.get('P'),
-                kwargs.get('initialized'),
-                kwargs.get('is_los'),
-                kwargs.get('dt', 0.05),
-                kwargs.get('alpha', 0.3),
-                kwargs.get('beta', 2.0),
-                kwargs.get('nlos_factor', 10.0),
-                kwargs.get('zupt_threshold', 0.05)
+        elif "IMU-UWB AEKF" in algorithm_name or "Hybrid UWB-IMU" in algorithm_name:
+            return LocalizationAlgorthimes.imu_uwb_aekf(
+                measurements=kwargs.get('measurements'),
+                tag=kwargs.get('tag'),
+                anchors=kwargs.get('anchors'),
+                state=kwargs.get('state'),
+                P=kwargs.get('P'),
+                initialized=kwargs.get('initialized'),
+                alpha=kwargs.get('alpha', 0.5),
+                dt=kwargs.get('dt', 0.05),
+                zupt_threshold=kwargs.get('zupt_threshold', 0.08),
+                Q=kwargs.get('Q'),
+                R=kwargs.get('R')
             )
         else:
             # Default to EKF if algorithm not recognized

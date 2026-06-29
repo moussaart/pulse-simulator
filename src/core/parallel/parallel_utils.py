@@ -406,40 +406,34 @@ def parallel_algorithm_execution(
                 position, config['state'], config['P'], config['initialized'], config['Q'], config['R'] = result
             
             elif name == 'IMU_ONLY':
-                if hasattr(tag, 'imu_data') and len(tag.imu_data.acc_x) > 0:
-                    imu_measurements = [float(tag.imu_data.acc_x[-1]), float(tag.imu_data.acc_y[-1])]
-                else:
-                    imu_measurements = [0.0, 0.0]
-                    
-                result = LocalizationAlgorthimes.imu_only_filter(
+                result = LocalizationAlgorthimes.imu_uwb_aekf(
+                    measurements=[],  # No UWB
                     tag=tag,
-                    measurements=imu_measurements,
+                    anchors=[],
                     state=config['state'],
                     P=config['P'],
                     initialized=config['initialized'],
-                    dt=dt
+                    dt=dt,
+                    Q=config.get('Q'),
+                    R=config.get('R')
                 )
-                position, config['state'], config['P'], config['initialized'] = result
+                position, config['state'], config['P'], config['initialized'], config['Q'], config['R'] = result
                 
             elif name == 'IMU_NLOS_AEKF':
-                is_los_used = is_los if is_los is not None else [0] * len(measurements)
-                
-                result = LocalizationAlgorthimes.IMU_assisted_Nlos_aware_aekf(
+                result = LocalizationAlgorthimes.imu_uwb_aekf(
                     measurements=measurements,
                     tag=tag,
                     anchors=anchors,
                     state=config['state'],
                     P=config['P'],
                     initialized=config['initialized'],
-                    is_los=is_los_used,
-                    alpha=config.get('alpha', 0.3),
-                    beta=config.get('beta', 2.0),
-                    nlos_factor=config.get('nlos_factor', 10.0),
+                    alpha=config.get('alpha', 0.5),
                     dt=dt,
-                    zupt_threshold=0.05,
+                    zupt_threshold=0.08,
+                    Q=config.get('Q'),
                     R=config.get('R')
                 )
-                position, config['state'], config['P'], config['initialized'], config['R'] = result
+                position, config['state'], config['P'], config['initialized'], config['Q'], config['R'] = result
             
             else:
                 # Fallback to trilateration
