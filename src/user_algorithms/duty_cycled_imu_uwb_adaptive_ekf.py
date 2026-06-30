@@ -48,8 +48,8 @@ class DutyCycledImuUwbAdaptiveEkfAlgorithm(BaseLocalizationAlgorithm):
     DEFAULT_GYRO_THRESHOLD = 0.1    # rad/s – gyro-norm stillness gate (IMU fallback)
     GT_STILLNESS_EPS        = 0.001  # m²/s² – ground-truth speed² stillness gate
 
-    DEFAULT_CYCLE_LENGTH  = 3.0   # s – total duty-cycle period
-    DEFAULT_ACTIVE_WINDOW = 1.0   # s – portion of the cycle (at the end) where UWB is fused
+    DEFAULT_CYCLE_LENGTH  = 4.0   # s – total duty-cycle period
+    DEFAULT_ACTIVE_WINDOW = 2.0   # s – portion of the cycle (at the end) where UWB is fused
 
     n_ekf  = 4   # EKF dimension
     n_full = 7   # EKF + yaw + gyro_bias + cycle_time

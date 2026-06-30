@@ -52,12 +52,12 @@ class DutyCycledImuUwbNaEkfAlgorithm(BaseLocalizationAlgorithm):
     PROCESS_NOISE_VEL = 1.0
     MEASUREMENT_NOISE = 0.15
 
-    ALPHA = 0.5          # smoothing factor for R
-    BETA  = 0.5          # smoothing factor for Q
+    ALPHA = 0.3          # smoothing factor for R
+    BETA  = 0.3          # smoothing factor for Q
     OMEGA = 0.7           # IMU-velocity blend weight in prediction
     BIAS_ALPHA = 0.05     # gyro bias EMA smoothing factor
 
-    LAMBDA_NLOS = 5.0      # inflation factor applied to r_i when anchor i is NLOS
+    LAMBDA_NLOS = 2    # inflation factor applied to r_i when anchor i is NLOS
 
     DEFAULT_ZUPT_THRESHOLD = 0.08   # m/s² – accel-norm stillness gate (IMU fallback)
     DEFAULT_GYRO_THRESHOLD = 0.1    # rad/s – gyro-norm stillness gate (IMU fallback)
