@@ -111,6 +111,13 @@ class DataSample:
     imu_acceleration: Optional[Tuple[float, float, float]] = None
     imu_angular_velocity: Optional[Tuple[float, float, float]] = None
     
+    # Energy data
+    energy_consumed_J: float = 0.0
+    total_power_mW: float = 0.0
+    
+    # Custom arbitrary data (e.g. dynamic state, NLOS flags)
+    extra_data: Dict[str, Any] = field(default_factory=dict)
+    
     def to_dict(self) -> dict:
         """Convert to dictionary for serialization"""
         return {
@@ -126,7 +133,10 @@ class DataSample:
             'channel_data': [cd.to_dict() for cd in self.channel_data],
             'filter_outputs': {k: v.to_dict() for k, v in self.filter_outputs.items()},
             'imu_acceleration': list(self.imu_acceleration) if self.imu_acceleration else None,
-            'imu_angular_velocity': list(self.imu_angular_velocity) if self.imu_angular_velocity else None
+            'imu_angular_velocity': list(self.imu_angular_velocity) if self.imu_angular_velocity else None,
+            'energy_consumed_J': self.energy_consumed_J,
+            'total_power_mW': self.total_power_mW,
+            'extra_data': self.extra_data
         }
     
     def to_flat_dict(self) -> dict:
@@ -168,6 +178,14 @@ class DataSample:
             flat['imu_gyro_x'] = self.imu_angular_velocity[0]
             flat['imu_gyro_y'] = self.imu_angular_velocity[1]
             flat['imu_gyro_z'] = self.imu_angular_velocity[2]
+            
+        flat['energy_consumed_J'] = self.energy_consumed_J
+        flat['total_power_mW'] = self.total_power_mW
+        
+        # Add custom extra data dynamically
+        if self.extra_data:
+            for k, v in self.extra_data.items():
+                flat[f'extra_{k}'] = v
             
         return flat
 
@@ -292,7 +310,10 @@ class DataCollector:
                 filter_state: Dict[str, Any] = None,
                 estimated_pos: Tuple[float, float] = None,
                 error: float = None,
-                algorithm_name: str = None) -> Optional[DataSample]:
+                algorithm_name: str = None,
+                energy_consumed_J: float = 0.0,
+                total_power_mW: float = 0.0,
+                extra_data: Dict[str, Any] = None) -> Optional[DataSample]:
         """
         Collect a data sample from the current simulation state.
         
@@ -406,7 +427,10 @@ class DataCollector:
             channel_data=channel_data,
             filter_outputs=filter_outputs,
             imu_acceleration=imu_acc,
-            imu_angular_velocity=imu_gyro
+            imu_angular_velocity=imu_gyro,
+            energy_consumed_J=energy_consumed_J,
+            total_power_mW=total_power_mW,
+            extra_data=extra_data or {}
         )
         
         # Add to buffer

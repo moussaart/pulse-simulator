@@ -53,6 +53,9 @@ class SimulationManager:
         self._consecutive_measurement_failures = 0
         self._MAX_CONSECUTIVE_FAILURES = 10
         
+        # Cache for custom algorithm outputs (like duty cycle status)
+        self.last_algorithm_extra_data = {}
+        
         # --- Performance caches (rebuilt each frame) ---
         # Per-frame LOS cache: dict mapping anchor_id -> bool (True=LOS)
         self._frame_los_cache = {}
@@ -198,6 +201,9 @@ class SimulationManager:
                     return
                 self._consecutive_measurement_failures = 0
                 
+                # Reset extra data before estimation
+                self.last_algorithm_extra_data = {}
+                
                 # Estimate position
                 estimated_pos = self.estimate_position(measurements, is_los)
                 
@@ -225,6 +231,38 @@ class SimulationManager:
                 if not np.isfinite(error):
                     error = 0.0  # Safe fallback for display
                 
+                # --- Dynamic Energy Calculation ---
+                energy_consumed_J = 0.0
+                total_power_mW = 0.0
+                if hasattr(self.parent, 'energy_calculator'):
+                    calc = self.parent.energy_calculator
+                    algo = self.parent.algorithm.lower()
+                    
+                    # Live parameters
+                    calc.config.uwb_frequency_hz = 1.0 / self.parent.dt
+                    calc.config.num_anchors = len(self.parent.anchors)
+                    
+                    # Algorithm awareness
+                    is_imu_only = "imu only" in algo
+                    uses_imu = "imu" in algo or "hybrid" in algo
+                    
+                    # Check if the algorithm dynamically overrides the UWB active state
+                    if "uwb_window_open" in self.last_algorithm_extra_data:
+                        calc.config.uwb_disabled = not self.last_algorithm_extra_data["uwb_window_open"]
+                    else:
+                        calc.config.uwb_disabled = is_imu_only
+                        
+                    calc.config.imu_enabled = uses_imu
+                    
+                    # Calculate and accumulate for this timestep
+                    energy_result = calc.calculate_step(self.parent.dt)
+                    energy_consumed_J = energy_result.total_energy_consumed_J
+                    total_power_mW = energy_result.total_power_mW
+                    
+                    # Trigger UI update
+                    if hasattr(self.parent, 'update_energy_displays'):
+                        self.parent.update_energy_displays()
+                        
                 # AI Training Data Collection Hook
                 if hasattr(self.parent, 'training_api') and self.parent.training_api.is_collecting:
                     self.parent.training_api.collect_sample(
@@ -241,35 +279,11 @@ class SimulationManager:
                         },
                         estimated_pos=estimated_pos,
                         error=error,
-                        algorithm_name=self.parent.algorithm
+                        algorithm_name=self.parent.algorithm,
+                        energy_consumed_J=energy_consumed_J,
+                        total_power_mW=total_power_mW,
+                        extra_data=self.last_algorithm_extra_data
                     )
-                
-                # --- Dynamic Energy Calculation ---
-                energy_consumed_J = 0.0
-                total_power_mW = 0.0
-                if hasattr(self.parent, 'energy_calculator'):
-                    calc = self.parent.energy_calculator
-                    algo = self.parent.algorithm.lower()
-                    
-                    # Live parameters
-                    calc.config.uwb_frequency_hz = 1.0 / self.parent.dt
-                    calc.config.num_anchors = len(self.parent.anchors)
-                    
-                    # Algorithm awareness
-                    is_imu_only = "imu only" in algo
-                    uses_imu = "imu" in algo or "hybrid" in algo
-                    
-                    calc.config.uwb_disabled = is_imu_only
-                    calc.config.imu_enabled = uses_imu
-                    
-                    # Calculate and accumulate for this timestep
-                    energy_result = calc.calculate_step(self.parent.dt)
-                    energy_consumed_J = energy_result.total_energy_consumed_J
-                    total_power_mW = energy_result.total_power_mW
-                    
-                    # Trigger UI update
-                    if hasattr(self.parent, 'update_energy_displays'):
-                        self.parent.update_energy_displays()
 
                 # Record snapshot for timeline playback
                 self.recorder.record_snapshot(
@@ -654,6 +668,9 @@ class SimulationManager:
                 )
                 
                 output = algo_instance.update(input_data)
+                
+                if getattr(output, 'extra_data', None):
+                    self.last_algorithm_extra_data = output.extra_data
                 
                 # Update parent state with output
                 if output:

@@ -152,7 +152,10 @@ class TrainingDataAPI:
                        filter_state: Dict[str, Any] = None,
                        estimated_pos: tuple = None,
                        error: float = None,
-                       algorithm_name: str = None) -> Optional[DataSample]:
+                       algorithm_name: str = None,
+                       energy_consumed_J: float = 0.0,
+                       total_power_mW: float = 0.0,
+                       extra_data: Dict[str, Any] = None) -> Optional[DataSample]:
         """
         Collect a data sample from current simulation state.
         Called by SimulationManager during each update.
@@ -167,6 +170,9 @@ class TrainingDataAPI:
             estimated_pos: Estimated position from filter
             error: Estimation error
             algorithm_name: Name of the current algorithm
+            energy_consumed_J: Current step's energy consumption
+            total_power_mW: Current step's active power draw
+            extra_data: Any additional output properties from the algorithm
             
         Returns:
             DataSample if collection is enabled, None otherwise
@@ -180,7 +186,10 @@ class TrainingDataAPI:
             filter_state=filter_state,
             estimated_pos=estimated_pos,
             error=error,
-            algorithm_name=algorithm_name
+            algorithm_name=algorithm_name,
+            energy_consumed_J=energy_consumed_J,
+            total_power_mW=total_power_mW,
+            extra_data=extra_data
         )
     
     # ==================== Data Access ====================
