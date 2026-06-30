@@ -555,6 +555,10 @@ class ControlPanelFactory:
         # add_algo_btn.setFixedWidth(60)
         add_algo_btn.setToolTip("Create Custom Algorithm")
         
+        # Add Edit button
+        edit_algo_btn = ActionButton("✏️ Edit", variant="secondary")
+        edit_algo_btn.setToolTip("Edit selected algorithm code")
+        
         # Add Delete button - Increased size for visibility
         delete_algo_btn = ActionButton("🗑️", variant="danger")
         # delete_algo_btn.setFixedWidth(40)
@@ -579,10 +583,12 @@ class ControlPanelFactory:
         
         # Remove fixed widths to allow expansion
         add_algo_btn.setMinimumWidth(60) # Set minimum instead of fixed
+        edit_algo_btn.setMinimumWidth(50)
         open_algo_folder_btn.setMinimumWidth(40)
         delete_algo_btn.setMinimumWidth(40)
         
         btn_layout.addWidget(add_algo_btn, 1) # Stretch factor 1
+        btn_layout.addWidget(edit_algo_btn, 1) # Stretch factor 1
         btn_layout.addWidget(open_algo_folder_btn, 1) # Stretch factor 1
         btn_layout.addWidget(delete_algo_btn, 1) # Stretch factor 1
         
@@ -613,6 +619,7 @@ class ControlPanelFactory:
         widgets = {
             'algo_combo': algo_combo,
             'add_algo_btn': add_algo_btn,
+            'edit_algo_btn': edit_algo_btn,
             'delete_algo_btn': delete_algo_btn,
             'open_algo_folder_btn': open_algo_folder_btn,
             'ma_window_spin': ma_window_spin

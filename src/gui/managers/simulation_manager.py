@@ -682,35 +682,7 @@ class SimulationManager:
                 raise SimulationError.from_exception(e, f"custom algorithm '{self.parent.algorithm}'")
 
         if method:
-            if "Improved Adaptive EKF" in self.parent.algorithm:
-                result = method(
-                    measurements=measurements,
-                    tag=self.parent.tag,
-                    anchors=self.parent.anchors,
-                    aekf_state=self.parent.kf_state,
-                    aekf_P=self.parent.kf_P,
-                    aekf_initialized=self.parent.kf_initialized,
-                    dt=self.parent.dt,
-                    mu=self.parent.adaptive_iekf_mu,
-                    alpha=self.parent.adaptive_iekf_alpha,
-                    xi=self.parent.adaptive_iekf_xi,
-                    lambda_min=self.parent.adaptive_iekf_lambda_min,
-                    lambda_max=self.parent.adaptive_iekf_lambda_max,
-                    tau=self.parent.adaptive_iekf_tau,
-                    iteration_count=self.parent.adaptive_iekf_iteration_count,
-                    prev_R=self.parent.adaptive_iekf_prev_R,
-                    innovation_history=self.parent.adaptive_iekf_innovation_history,
-                    imu_data_on=False,
-                    u=u
-                )
-                (position, self.parent.adaptive_iekf_innovation_history, 
-                 self.parent.kf_state, self.parent.kf_P, 
-                 self.parent.kf_initialized, self.parent.aekf_Q, 
-                 self.parent.adaptive_iekf_prev_R) = result
-                self.parent.aekf_R = self.parent.adaptive_iekf_prev_R
-                return position
-                
-            elif "IMU-UWB AEKF" in self.parent.algorithm:
+            if "IMU-UWB AEKF" in self.parent.algorithm:
                 result = method(
                     measurements=measurements,
                     tag=self.parent.tag,
@@ -728,77 +700,7 @@ class SimulationManager:
                  self.parent.kf_initialized, self.parent.aekf_Q,
                  self.parent.aekf_R) = result
                 return position
-
-            elif "NLOS-Aware" in self.parent.algorithm:
-                result = method(
-                    measurements=measurements,
-                    tag=self.parent.tag,
-                    anchors=self.parent.anchors,
-                    aekf_state=self.parent.kf_state,
-                    aekf_P=self.parent.kf_P,
-                    aekf_initialized=self.parent.kf_initialized,
-                    is_los=is_los,
-                    alpha=self.parent.los_aware_alpha,
-                    beta=self.parent.los_aware_beta,
-                    nlos_factor=self.parent.los_aware_nlos_factor,
-                    dt=self.parent.dt,
-                    imu_data_on=False,
-                    u=u,
-                    R=self.parent.aekf_R,
-                    Q=self.parent.aekf_Q
-                )
-                (position, self.parent.kf_state, self.parent.kf_P, 
-                 self.parent.kf_initialized, self.parent.aekf_Q, 
-                 self.parent.aekf_R) = result
-                return position
                 
-            elif "Kalman" in self.parent.algorithm:
-                if "Adaptive Extended Kalman Filter" in self.parent.algorithm:
-                    result = method(
-                        measurements=measurements,
-                        tag=self.parent.tag,
-                        anchors=self.parent.anchors,
-                        aekf_state=self.parent.kf_state,
-                        aekf_P=self.parent.kf_P,
-                        aekf_initialized=self.parent.kf_initialized,
-                        dt=self.parent.dt,
-                        Q=self.parent.aekf_Q,
-                        R=self.parent.aekf_R,
-                        imu_data_on=False,
-                        u=u
-                    )
-                    (position, self.parent.kf_state, self.parent.kf_P, 
-                     self.parent.kf_initialized, self.parent.aekf_Q, 
-                     self.parent.aekf_R) = result
-                    return position
-                    
-                result = method(
-                    measurements, self.parent.tag, self.parent.anchors,
-                    self.parent.kf_state, self.parent.kf_P, 
-                    self.parent.kf_initialized, self.parent.dt,
-                    imu_data_on=False, u=u
-                )
-                (position, self.parent.kf_state, self.parent.kf_P, 
-                 self.parent.kf_initialized) = result
-                return position
-                
-            elif "IMU Only" in self.parent.algorithm:
-                measurements_imu = [float(self.parent.tag.imu_data.acc_x[-1]), 
-                                   float(self.parent.tag.imu_data.acc_y[-1])]
-                result = method(
-                    tag=self.parent.tag,
-                    measurements=measurements_imu,
-                    state=self.parent.imu_state,
-                    P=self.parent.imu_P,
-                    initialized=self.parent.kf_initialized,
-                    dt=self.parent.dt
-                )
-                (output, self.parent.imu_state, self.parent.imu_P, 
-                 self.parent.kf_initialized) = result
-                return output
-            else:
-                return method(measurements, self.parent.anchors)
-        
         # Fallback to trilateration
         return LocalizationAlgorthimes.trilateration(measurements, self.parent.anchors)
     

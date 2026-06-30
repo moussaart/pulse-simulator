@@ -44,10 +44,11 @@ class ImuspeeddeadreckoningalgorithmAlgorithm(BaseLocalizationAlgorithm):
         gyro_threshold  = float(params.get("gyro_threshold", self.DEFAULT_GYRO_THRESHOLD))
         movement_speed  = float(params.get("movement_speed", 1.0))
 
-        dt          = input_data.dt
-        imu_on      = input_data.imu_data_on
-        accel_raw   = input_data.accel          # [ax, ay, az]  m/s²
-        gyro_raw    = input_data.gyro           # [gx, gy, gz]  rad/s
+        measurements    = input_data.measurements
+        dt              = input_data.dt
+        imu_on          = input_data.imu_data_on
+        accel_raw       = input_data.accel          # [ax, ay, az]  m/s²
+        gyro_raw        = input_data.gyro           # [gx, gy, gz]  rad/s
 
         state       = input_data.state
         covariance  = input_data.covariance

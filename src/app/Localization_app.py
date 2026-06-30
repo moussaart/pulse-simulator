@@ -511,6 +511,9 @@ class LocalizationApp(QMainWindow):
             if 'add_algo_btn' in algo_widgets:
                 algo_widgets['add_algo_btn'].clicked.connect(self.open_algorithm_wizard)
             
+            if 'edit_algo_btn' in algo_widgets:
+                algo_widgets['edit_algo_btn'].clicked.connect(self.edit_selected_algorithm)
+            
             if 'delete_algo_btn' in algo_widgets:
                 algo_widgets['delete_algo_btn'].clicked.connect(self.delete_selected_algorithm)
                 
@@ -1423,12 +1426,6 @@ class LocalizationApp(QMainWindow):
         if hasattr(self, 'algo_indicator_btn'):
             self.algo_indicator_btn.setText(f"Algorithm: {algorithm}")
         
-        # Show/hide NLOS-Aware parameters window
-        if "NLOS-Aware AEKF" in algorithm:
-            if self.los_aware_window is None:
-                self.los_aware_window = NLOSAwareParamsWindow()
-                self.los_aware_window.params_changed.connect(self.update_los_aware_params)
-            self.los_aware_window.show()
         elif self.los_aware_window is not None:
             self.los_aware_window.hide()
         
@@ -1973,10 +1970,8 @@ class LocalizationApp(QMainWindow):
             "Extended Kalman Filter",
             "Unscented Kalman Filter",
             "Adaptive Extended Kalman Filter",
-            "NLOS-Aware AEKF",
             "Improved Adaptive EKF",
             "IMU Only",
-            "IMU assisted NLOS-Aware AEKF",
         ]:
             QMessageBox.warning(self, "Cannot Delete", 
                               f"'{current_algo}' is a built-in algorithm and cannot be deleted.")
@@ -2043,6 +2038,48 @@ class LocalizationApp(QMainWindow):
                     
             except Exception as e:
                 QMessageBox.critical(self, "Error", f"Failed to delete algorithm: {str(e)}")
+
+    def edit_selected_algorithm(self):
+        """Open the selected algorithm file in the local code editor window"""
+        current_algo = self.algo_combo.currentText()
+        try:
+            from src.core.localization import Alghortimes_doc
+            doc = Alghortimes_doc()
+            algo_func = doc.get_algorithm_methods().get(current_algo)
+            
+            if algo_func:
+                import inspect
+                import os
+                file_path = inspect.getfile(algo_func)
+                
+                if os.path.exists(file_path):
+                    # Local Code Editor Window
+                    from src.gui.windows.algorithm_creation_window import AlgorithmEditorWindow
+                    editor = AlgorithmEditorWindow(self, file_path=file_path, algorithm_name=current_algo)
+                    if editor.exec_():
+                        # Saved successfully, reload algorithms!
+                        try:
+                            # Re-load the list and instances
+                            doc.reload_custom_algorithms()
+                            self.refresh_algorithm_list()
+                            
+                            # Restore selection if possible
+                            index = self.algo_combo.findText(current_algo)
+                            if index >= 0:
+                                self.algo_combo.setCurrentIndex(index)
+                                
+                            # Optionally show notification
+                            if hasattr(self, 'status_display') and self.status_display:
+                                self.status_display.append(f"Algorithm '{current_algo}' updated and reloaded in real time.")
+                        except Exception as reload_error:
+                            QMessageBox.warning(self, "Reload Warning", f"Algorithm saved, but failed to reload in real time: {reload_error}")
+                else:
+                    QMessageBox.warning(self, "Error", f"File not found: {file_path}")
+            else:
+                QMessageBox.warning(self, "Error", "Algorithm function not found.")
+                
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"Failed to open algorithm file: {str(e)}")
 
     def open_algorithm_folder(self):
         """Open the folder containing custom algorithms"""

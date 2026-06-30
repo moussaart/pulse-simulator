@@ -341,3 +341,87 @@ class AlgorithmCreationWindow(QDialog):
             
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Failed to save file: {str(e)}")
+
+class AlgorithmEditorWindow(QDialog):
+    """
+    Window for editing an existing custom localization algorithm.
+    Provides a code editor and saves back to the selected file.
+    """
+    def __init__(self, parent=None, file_path=None, algorithm_name=None):
+        super().__init__(parent)
+        self.file_path = file_path
+        self.algorithm_name = algorithm_name
+        self.setWindowTitle(f"Edit Algorithm: {algorithm_name}")
+        self.resize(1000, 700)
+        
+        # Apply dark theme
+        self.setStyleSheet("""
+            QDialog { background-color: #1e1e1e; color: #d4d4d4; }
+            QGroupBox { border: 1px solid #3e3e42; border-radius: 4px; margin-top: 20px; font-weight: bold; color: #d4d4d4; }
+            QGroupBox::title { subcontrol-origin: margin; left: 10px; padding: 0 3px 0 3px; }
+            QTextEdit, QPlainTextEdit { background-color: #1e1e1e; color: #d4d4d4; border: 1px solid #3e3e42; font-family: 'Consolas', 'Courier New', monospace; font-size: 13px; }
+            QPushButton { background-color: #3e3e42; color: #ffffff; border: 1px solid #3e3e42; padding: 6px 12px; border-radius: 2px; }
+            QPushButton:hover { background-color: #505050; }
+            QLabel { color: #d4d4d4; }
+        """)
+        
+        self.init_ui()
+        self.load_file()
+        
+    def init_ui(self):
+        layout = QVBoxLayout()
+        layout.setContentsMargins(15, 15, 15, 15)
+        layout.setSpacing(10)
+        
+        meta_group = QGroupBox("Algorithm Details")
+        meta_layout = QHBoxLayout()
+        filename_label = QLabel(f"File: {os.path.basename(self.file_path) if self.file_path else 'Unknown'}")
+        filename_label.setStyleSheet("color: gray; font-style: italic;")
+        meta_layout.addWidget(filename_label)
+        meta_group.setLayout(meta_layout)
+        layout.addWidget(meta_group)
+        
+        editor_group = QGroupBox("Code Editor")
+        editor_layout = QVBoxLayout()
+        editor_layout.setContentsMargins(0, 10, 0, 0)
+        
+        self.code_editor = CodeEditor()
+        self.code_editor.setFont(QFont("Consolas", 11))
+        self.highlighter = PythonHighlighter(self.code_editor.document())
+        
+        editor_layout.addWidget(self.code_editor)
+        editor_group.setLayout(editor_layout)
+        layout.addWidget(editor_group, 1)
+        
+        btn_layout = QHBoxLayout()
+        save_btn = ActionButton("💾 Save & Apply", variant="success")
+        save_btn.clicked.connect(self.save_algorithm)
+        
+        cancel_btn = ActionButton("Cancel", variant="secondary")
+        cancel_btn.clicked.connect(self.reject)
+        
+        btn_layout.addStretch()
+        btn_layout.addWidget(cancel_btn)
+        btn_layout.addWidget(save_btn)
+        
+        layout.addLayout(btn_layout)
+        self.setLayout(layout)
+        
+    def load_file(self):
+        if not self.file_path or not os.path.exists(self.file_path):
+            QMessageBox.critical(self, "Error", f"File not found: {self.file_path}")
+            return
+            
+        try:
+            with open(self.file_path, 'r', encoding='utf-8') as f:
+                self.code_editor.setPlainText(f.read())
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"Failed to load file: {str(e)}")
+            
+    def save_algorithm(self):
+        try:
+            with open(self.file_path, 'w', encoding='utf-8') as f:
+                f.write(self.code_editor.toPlainText())
+            self.accept()
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"Failed to save file: {str(e)}")

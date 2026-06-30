@@ -7,7 +7,6 @@ class Alghortimes_doc():
     def __init__(self):
         self.algorithm_methods = {
             "Trilateration": LocalizationAlgorthimes.trilateration,
-            "NLOS-Aware AEKF": LocalizationAlgorthimes.Nlos_aware_aekf,
             "IMU-UWB AEKF": LocalizationAlgorthimes.imu_uwb_aekf,
             "Duty Cycled IMU-UWB AEKF": LocalizationAlgorthimes.duty_cycled_imu_uwb_aekf,
         }
