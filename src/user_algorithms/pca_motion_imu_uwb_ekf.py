@@ -1,130 +1,64 @@
 import numpy as np
+from collections import deque
 from src.core.localization.base_algorithm import BaseLocalizationAlgorithm, AlgorithmInput, AlgorithmOutput
 
-
-class DutyCycledImuUwbAdaptiveEkfAlgorithm(BaseLocalizationAlgorithm):
+class PcaMotionImuUwbEkfAlgorithm(BaseLocalizationAlgorithm):
     """
-    Duty-Cycled Fused IMU-UWB Adaptive EKF for 2D tag localization.
-
-    State layout (packed into a single 7-vector, mirroring duty_cycled_imu_uwb_aekf):
-        EKF state  = [x, y, vx, vy]                    (indices 0-3, used by Kalman math)
-        Aux state  = [yaw, gyro_bias, cycle_time]       (indices 4-6, IMU + duty-cycle book-keeping)
-
-    Combines:
-      - IMU Speed Dead Reckoning: heading integration, speed propagation, ZUPT
-      - Adaptive EKF: UWB distance updates with adaptive R and Q
-      - Duty cycling: UWB measurements are only consumed during a configurable
-        active window within each cycle, IMU prediction runs continuously
-
-    Within each cycle (default 4.0s total), UWB is only fused during the
-    final active_window seconds (default 1.0s) -- e.g. with the defaults,
-    seconds [0, 3) run IMU-only dead-reckoning, seconds [3, 4) fuse UWB.
-    Both the cycle length and the active window are configurable via the
-    constructor so they can be tuned without subclassing.
-
-    Works in three prediction modes depending on what IMU data is available
-    this tick, independent of the duty-cycle gate:
-        UWB-only  -> constant-velocity prediction + UWB distance AEKF
-        IMU-only  -> heading+speed dead-reckoning + ZUPT
-        Hybrid    -> IMU prediction + UWB AEKF correction (only inside the window)
-
-    NOTE: this port assumes IMU data arrives the same way it does in
-    ImuspeeddeadreckoningalgorithmAlgorithm -- as input_data.accel /
-    input_data.gyro, gated by input_data.imu_data_on -- rather than nested
-    under input_data.tag.imu_data as in the original static method. If the
-    real AlgorithmInput still nests IMU under the tag, this needs adjusting.
+    Fused IMU-UWB Adaptive EKF for 2D tag localization.
+    
+    This filter uses the exact same prediction, shadow filter, and update logic 
+    as DutyCycledImuUwbAdaptiveEkfAlgorithm, but it replaces the time-based 
+    duty cycle with a PCA motion detection algorithm. UWB is only fused when 
+    the PCA algorithm confidently detects 'Linear Motion'.
     """
 
     PROCESS_NOISE_POS = 0.1
     PROCESS_NOISE_VEL = 1.0
     MEASUREMENT_NOISE = 0.15
 
-    ALPHA = 0.5          # smoothing factor for R
-    BETA  = 0.5          # smoothing factor for Q
-    OMEGA = 0.7           # IMU-velocity blend weight in prediction
-    BIAS_ALPHA = 0.05     # gyro bias EMA smoothing factor
+    ALPHA = 0.5          
+    BETA  = 0.5          
+    OMEGA = 0.7           
+    BIAS_ALPHA = 0.05     
 
-    DEFAULT_ZUPT_THRESHOLD = 0.08   # m/s² – accel-norm stillness gate (IMU fallback)
-    DEFAULT_GYRO_THRESHOLD = 0.1    # rad/s – gyro-norm stillness gate (IMU fallback)
-    GT_STILLNESS_EPS        = 0.001  # m²/s² – ground-truth speed² stillness gate
+    DEFAULT_ZUPT_THRESHOLD = 0.08   
+    DEFAULT_GYRO_THRESHOLD = 0.1    
+    GT_STILLNESS_EPS        = 0.001  
 
-    DEFAULT_CYCLE_LENGTH  = 4.0   # s – total duty-cycle period
-    DEFAULT_ACTIVE_WINDOW = 2.0   # s – portion of the cycle (at the end) where UWB is fused
-
-    n_ekf  = 4   # EKF dimension
-    n_full = 7   # EKF + yaw + gyro_bias + cycle_time
+    n_ekf  = 4   
+    n_full = 7   # EKF + yaw + gyro_bias + cycle_time (kept for compatibility)
 
     uses_imu = True
     required_sensors = ("imu",)
 
-    def __init__(self, *args, cycle_length: float = None, active_window: float = None, **kwargs):
-        """
-        cycle_length  : total duty-cycle period in seconds (default 4.0, matches
-                        the original duty_cycled_imu_uwb_aekf).
-        active_window : seconds at the END of each cycle during which UWB
-                        measurements are fused (default 1.0). Must be <= cycle_length.
-
-        Both default to None here rather than the class constants directly so
-        that *args/**kwargs from a no-arg factory/registry instantiation
-        (e.g. AlgorithmClass()) still works unchanged -- this constructor is
-        purely additive on top of whatever BaseLocalizationAlgorithm expects.
-        """
+    def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.cycle_length  = float(cycle_length) if cycle_length is not None else self.DEFAULT_CYCLE_LENGTH
-        self.active_window = float(active_window) if active_window is not None else self.DEFAULT_ACTIVE_WINDOW
-        if self.active_window > self.cycle_length:
-            raise ValueError(
-                f"active_window ({self.active_window}) cannot exceed cycle_length ({self.cycle_length})"
-            )
-
-        # ── Shadow IMU-only filter state ─────────────────────────────────
-        # When the fusion window opens, we snapshot the real filter and
-        # continue an IMU-only copy to measure counterfactual drift.
+        # Shadow IMU-only filter state (from duty-cycled logic)
         self._shadow_active = False
-        self._shadow_state = None       # EKF state [x, y, vx, vy]
-        self._shadow_P = None           # Covariance
+        self._shadow_state = None       
+        self._shadow_P = None           
         self._shadow_yaw = 0.0
         self._shadow_gyro_bias = 0.0
-        self._shadow_position = None    # (x, y) from shadow prediction
-        self._shadow_error = 0.0        # error vs ground truth
+        self._shadow_position = None    
+        self._shadow_error = 0.0        
 
-    def set_duty_cycle(self, cycle_length: float, active_window: float):
-        """
-        Dynamically update the duty cycle parameters at runtime.
-        
-        Args:
-            cycle_length:  Total cycle period in seconds (T_IMU + T_UWB).
-            active_window: UWB-active portion in seconds (T_UWB).
-                           Must be <= cycle_length.
-        """
-        cycle_length = float(cycle_length)
-        active_window = float(active_window)
-        if active_window > cycle_length:
-            raise ValueError(
-                f"active_window ({active_window}) cannot exceed cycle_length ({cycle_length})"
-            )
-        if cycle_length <= 0 or active_window < 0:
-            raise ValueError(
-                f"cycle_length must be > 0 and active_window >= 0, "
-                f"got cycle_length={cycle_length}, active_window={active_window}"
-            )
-        self.cycle_length = cycle_length
-        self.active_window = active_window
-
-    # ------------------------------------------------------------------ #
-    #  BaseLocalizationAlgorithm interface                                #
-    # ------------------------------------------------------------------ #
+        # PCA detection state
+        self.window_size = 50
+        self.accel_window = deque(maxlen=self.window_size)
+        self.smoothing_window_size = 20
+        self.detection_history = deque(maxlen=self.smoothing_window_size)
+        self.smoothed_state = "Unknown"
+        self._prev_uwb_open = False
 
     @property
     def name(self) -> str:
-        return "Duty-Cycled IMU-UWB Adaptive EKF"
+        return "PCA Motion IMU-UWB EKF"
 
     def initialize(self) -> None:
-        pass
-
-    # ------------------------------------------------------------------ #
-    #  Main update                                                         #
-    # ------------------------------------------------------------------ #
+        self.accel_window.clear()
+        self.detection_history.clear()
+        self.smoothed_state = "Unknown"
+        self._prev_uwb_open = False
 
     def update(self, input_data: AlgorithmInput) -> AlgorithmOutput:
         measurements = input_data.measurements
@@ -148,41 +82,56 @@ class DutyCycledImuUwbAdaptiveEkfAlgorithm(BaseLocalizationAlgorithm):
 
         state, yaw, gyro_bias, cycle_time = self._unpack_state(state)
 
-        # ── 2. Advance duty-cycle timer, decide if UWB is gated this tick ─
-        prev_uwb_open = self._in_active_window(cycle_time)
-        cycle_time = self._advance_cycle(cycle_time, dt)
-        uwb_window_open = self._in_active_window(cycle_time)
-        effective_measurements = measurements if uwb_window_open else None
+        # ── 2. PCA Motion Detection & Smoothing ──────────────────────────
+        if imu_on and accel_raw is not None:
+            self.accel_window.append(np.array(accel_raw, dtype=float))
+            
+        raw_detection = self._detect_motion_pca()
+        
+        if raw_detection != "Unknown":
+            self.detection_history.append(raw_detection)
+            
+        if len(self.detection_history) > 0:
+            counts = {}
+            for d in self.detection_history:
+                counts[d] = counts.get(d, 0) + 1
+            self.smoothed_state = max(counts, key=counts.get)
+        else:
+            self.smoothed_state = "Unknown"
 
-        # ── 3. Stationarity check (ground truth first, IMU fallback) ────
+        # ── 3. Decide if UWB is gated this tick (PCA replaces duty cycle) ─
+        prev_uwb_open = self._prev_uwb_open
+        uwb_window_open = (self.smoothed_state == "Linear Motion")
+        self._prev_uwb_open = uwb_window_open
+        
+        effective_measurements = measurements if uwb_window_open else None
+        cycle_time += dt # Keep cycle time updated for state vector compatibility
+
+        # ── 4. Stationarity check (ground truth first, IMU fallback) ────
         is_stationary = self._check_stationary(tag, imu_on, accel_raw, gyro_raw)
 
-        # ── 4. Shadow IMU-only filter management ─────────────────────────
-        # When fusion window opens: snapshot current state into shadow.
-        # When fusion window closes: discard the shadow.
+        # ── 5. Shadow IMU-only filter management ─────────────────────────
         if uwb_window_open and not prev_uwb_open:
-            # Fusion just started → snapshot the real filter
             self._shadow_active = True
             self._shadow_state = state.copy()
             self._shadow_P = covariance.copy()
             self._shadow_yaw = yaw
             self._shadow_gyro_bias = gyro_bias
         elif not uwb_window_open and prev_uwb_open:
-            # Fusion just ended → discard shadow
             self._shadow_active = False
             self._shadow_state = None
             self._shadow_P = None
             self._shadow_position = None
             self._shadow_error = 0.0
 
-        # ── 5. Prediction (UWB-only / IMU-only / ZUPT path) ──────────────
+        # ── 6. Prediction (UWB-only / IMU-only / ZUPT path) ──────────────
         Q = self._build_Q(Q, dt)
         state_pred, yaw, gyro_bias = self._predict(
             state, dt, tag, imu_on, gyro_raw, yaw, gyro_bias, is_stationary
         )
         P_pred = self._predict_covariance(covariance, dt, Q)
 
-        # ── 5b. Shadow filter: IMU-only prediction (no UWB corrections) ──
+        # ── 6b. Shadow filter: IMU-only prediction (no UWB corrections) ──
         if self._shadow_active and self._shadow_state is not None:
             shadow_Q = self._build_Q(None, dt)
             shadow_pred, self._shadow_yaw, self._shadow_gyro_bias = self._predict(
@@ -190,13 +139,11 @@ class DutyCycledImuUwbAdaptiveEkfAlgorithm(BaseLocalizationAlgorithm):
                 self._shadow_yaw, self._shadow_gyro_bias, is_stationary
             )
             shadow_P_pred = self._predict_covariance(self._shadow_P, dt, shadow_Q)
-            # Shadow only gets ZUPT, never UWB correction
             if is_stationary:
                 shadow_pred, shadow_P_pred = self._apply_zupt(shadow_pred, shadow_P_pred)
             self._shadow_state = shadow_pred
             self._shadow_P = self._repair_covariance(shadow_P_pred)
             self._shadow_position = (float(shadow_pred[0]), float(shadow_pred[1]))
-            # Compute shadow error vs ground truth
             if tag is not None and hasattr(tag, 'position'):
                 gt_x = float(getattr(tag.position, 'x', 0.0))
                 gt_y = float(getattr(tag.position, 'y', 0.0))
@@ -204,14 +151,14 @@ class DutyCycledImuUwbAdaptiveEkfAlgorithm(BaseLocalizationAlgorithm):
                     (shadow_pred[0] - gt_x)**2 + (shadow_pred[1] - gt_y)**2
                 ))
 
-        # ── 6. UWB adaptive measurement update (only inside the duty-cycle window) ─
+        # ── 7. UWB adaptive measurement update (gated by PCA window) ───────
         state, P, Q, R = self._update(state_pred, P_pred, effective_measurements, anchors, Q, R)
 
-        # ── 7. ZUPT measurement update (velocity -> 0) ───────────────────
+        # ── 8. ZUPT measurement update (velocity -> 0) ───────────────────
         if is_stationary:
             state, P = self._apply_zupt(state, P)
 
-        # ── 8. Covariance repair (symmetry + PSD) ────────────────────────
+        # ── 9. Covariance repair (symmetry + PSD) ────────────────────────
         P = self._repair_covariance(P)
 
         full_state = self._pack_state(state, yaw, gyro_bias, cycle_time)
@@ -231,12 +178,37 @@ class DutyCycledImuUwbAdaptiveEkfAlgorithm(BaseLocalizationAlgorithm):
                 "uwb_window_open": uwb_window_open,
                 "shadow_imu_position": list(self._shadow_position) if self._shadow_position else None,
                 "shadow_imu_error": float(self._shadow_error) if self._shadow_active else None,
+                "pca_motion_state": self.smoothed_state
             },
         )
 
     # ------------------------------------------------------------------ #
     #  Private helpers                                                     #
     # ------------------------------------------------------------------ #
+    
+    def _detect_motion_pca(self) -> str:
+        if len(self.accel_window) < self.window_size:
+            return "Unknown"
+            
+        data = np.array(self.accel_window)
+        data_centered = data - np.mean(data, axis=0)
+        cov = np.cov(data_centered, rowvar=False)
+        cov += np.eye(cov.shape[0]) * 1e-9
+        
+        evals, _ = np.linalg.eigh(cov)
+        evals = np.sort(evals)[::-1]
+        total_var = np.sum(evals)
+        
+        if total_var < 1e-6:
+            return "Linear Motion"
+            
+        ratios = evals / total_var
+        if ratios[0] > 0.85:
+            return "Linear Motion"
+        elif (ratios[0] + ratios[1]) > 0.90:
+            return "Circular/Curvilinear Motion"
+        else:
+            return "Random Walk"
 
     def _unpack_state(self, state) -> tuple:
         state = np.asarray(state, dtype=float).ravel()
@@ -257,30 +229,6 @@ class DutyCycledImuUwbAdaptiveEkfAlgorithm(BaseLocalizationAlgorithm):
             dtype=float,
         )
 
-    # ── Duty cycle ─────────────────────────────────────────────────────
-
-    def _advance_cycle(self, cycle_time: float, dt: float) -> float:
-        """
-        Advance the duty-cycle timer by dt, wrapping at self.cycle_length.
-
-        Mirrors doc 5's section 0 timer logic exactly, but against the
-        configurable self.cycle_length instead of a hardcoded 4.0.
-        """
-        cycle_time += dt
-        if cycle_time >= self.cycle_length:
-            cycle_time = 0.0
-        return cycle_time
-
-    def _in_active_window(self, cycle_time: float) -> bool:
-        """
-        True when this tick falls inside the UWB-active portion of the
-        cycle. The active window is the final self.active_window seconds
-        of each self.cycle_length-second cycle, matching doc 5's
-        `3.0 <= cycle_time < 4.0` gate generalised to configurable bounds.
-        """
-        window_start = self.cycle_length - self.active_window
-        return window_start <= cycle_time < self.cycle_length
-
     def _initialise(self, tag):
         x0   = float(getattr(getattr(tag, "position", None), "x", 0.0))
         y0   = float(getattr(getattr(tag, "position", None), "y", 0.0))
@@ -289,24 +237,16 @@ class DutyCycledImuUwbAdaptiveEkfAlgorithm(BaseLocalizationAlgorithm):
         state      = np.array([x0, y0, 0.0, 0.0], dtype=float)
         covariance = np.diag([5.0, 5.0, 10.0, 10.0]).astype(float)
         Q          = self._build_Q(None, dt=0.05)
-        R          = None  # sized lazily once we know how many anchors we have
+        R          = None  
 
-        # yaw/gyro_bias/cycle_time are stashed via the packed state, not
-        # separate fields, so initial yaw needs to ride along on the first
-        # _pack_state call; cycle_time starts at 0.0 (handled by the zero-pad
-        # in _unpack_state, no extra bookkeeping needed here)
         self._init_yaw = yaw0
         return state, covariance, Q, R
 
-    # ── Stationarity ───────────────────────────────────────────────────
-
     def _check_stationary(self, tag, imu_on, accel_raw, gyro_raw) -> bool:
-        # Primary: ground-truth velocity (available in simulation)
         if tag is not None and hasattr(tag, "velocity"):
             speed_sq = tag.velocity.x ** 2 + tag.velocity.y ** 2
             return speed_sq < self.GT_STILLNESS_EPS
 
-        # Fallback: raw IMU thresholds when ground truth isn't available
         if imu_on and accel_raw is not None and gyro_raw is not None:
             accel = np.asarray(accel_raw, dtype=float)
             gyro  = np.asarray(gyro_raw, dtype=float)
@@ -315,8 +255,6 @@ class DutyCycledImuUwbAdaptiveEkfAlgorithm(BaseLocalizationAlgorithm):
             return acc_norm < self.DEFAULT_ZUPT_THRESHOLD and gyro_norm < self.DEFAULT_GYRO_THRESHOLD
 
         return False
-
-    # ── Prediction ──────────────────────────────────────────────────────
 
     def _build_F(self, dt: float) -> np.ndarray:
         return np.array([
@@ -347,14 +285,12 @@ class DutyCycledImuUwbAdaptiveEkfAlgorithm(BaseLocalizationAlgorithm):
         imu_active = imu_on and gyro_raw is not None
 
         if is_stationary:
-            # ── ZUPT path: gyro bias update + zero velocity ──
             gyro_bias = (1 - self.BIAS_ALPHA) * gyro_bias + self.BIAS_ALPHA * gz
             state_pred = F @ ekf_state
             state_pred[2] = 0.0
             state_pred[3] = 0.0
 
         elif imu_active:
-            # ── IMU dead-reckoning path ──
             corrected_gz = gz - gyro_bias
             yaw += corrected_gz * dt
 
@@ -366,12 +302,10 @@ class DutyCycledImuUwbAdaptiveEkfAlgorithm(BaseLocalizationAlgorithm):
             vy_imu = actual_speed * np.sin(yaw)
 
             state_pred = F @ ekf_state
-            # Blend: trust IMU velocity heavily
             state_pred[2] = (1 - self.OMEGA) * state_pred[2] + self.OMEGA * vx_imu
             state_pred[3] = (1 - self.OMEGA) * state_pred[3] + self.OMEGA * vy_imu
 
         else:
-            # ── UWB-only path: constant velocity ──
             state_pred = F @ ekf_state
 
         return state_pred, yaw, gyro_bias
@@ -379,8 +313,6 @@ class DutyCycledImuUwbAdaptiveEkfAlgorithm(BaseLocalizationAlgorithm):
     def _predict_covariance(self, P, dt, Q) -> np.ndarray:
         F = self._build_F(dt)
         return F @ P @ F.T + Q
-
-    # ── Measurement helpers ──────────────────────────────────────────────
 
     def _predicted_distance(self, state, anchor) -> float:
         dx = state[0] - float(anchor.position.x)
@@ -393,19 +325,7 @@ class DutyCycledImuUwbAdaptiveEkfAlgorithm(BaseLocalizationAlgorithm):
         d  = max(np.sqrt(dx**2 + dy**2), 1e-6)
         return np.array([dx / d, dy / d, 0.0, 0.0])
 
-    # ── Adaptive UWB update ────────────────────────────────────────────────
-
     def _update(self, state_pred, P_pred, measurements, anchors, Q, R):
-        """
-        Joint adaptive UWB update:
-          - Builds full H and innovation vector y
-          - Adapts R  (AEKF §5.1)
-          - Adapts Q  (AEKF §5.2)
-          - Applies standard EKF correction
-
-        Falls back to pure prediction (no correction) when no UWB
-        measurements are available this tick.
-        """
         has_uwb = measurements is not None and anchors is not None and len(measurements) > 0
         if not has_uwb:
             return state_pred, P_pred, Q, R
@@ -425,19 +345,16 @@ class DutyCycledImuUwbAdaptiveEkfAlgorithm(BaseLocalizationAlgorithm):
             H[i]     = self._distance_jacobian_row(state_pred, anchors[i])
             y_vec[i] = z - self._predicted_distance(state_pred, anchors[i])
 
-        # ── Adaptive R (AEKF §5.1) ────────────────────────────────────────
         C_innov = np.outer(y_vec, y_vec)
         R_new   = C_innov - H @ P_pred @ H.T
         R_new   = np.diag(np.abs(np.diag(R_new)))
         R       = self.ALPHA * R + (1 - self.ALPHA) * R_new
 
-        # ── Adaptive Q (AEKF §5.2) ────────────────────────────────────────
         norm_y = np.linalg.norm(y_vec)
         gamma  = max(1.0, norm_y / max(n, 1))
         Q_new  = gamma * np.eye(self.n_ekf)
         Q      = self.BETA * Q + (1 - self.BETA) * Q_new
 
-        # ── EKF correction (with jitter fallback if S is singular) ───────
         S = H @ P_pred @ H.T + R
         S = (S + S.T) / 2.0
         try:
@@ -452,8 +369,6 @@ class DutyCycledImuUwbAdaptiveEkfAlgorithm(BaseLocalizationAlgorithm):
 
         return state, P, Q, R
 
-    # ── ZUPT measurement update ────────────────────────────────────────────
-
     def _apply_zupt(self, state, P):
         H_z = np.array([[0, 0, 1, 0],
                          [0, 0, 0, 1]], dtype=float)
@@ -464,8 +379,6 @@ class DutyCycledImuUwbAdaptiveEkfAlgorithm(BaseLocalizationAlgorithm):
         state = state + K_z @ y_z
         P     = (np.eye(self.n_ekf) - K_z @ H_z) @ P
         return state, P
-
-    # ── Covariance repair ──────────────────────────────────────────────────
 
     def _repair_covariance(self, P) -> np.ndarray:
         P = (P + P.T) / 2.0

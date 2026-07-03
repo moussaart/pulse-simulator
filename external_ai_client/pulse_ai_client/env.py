@@ -55,7 +55,7 @@ class PulseRLEnv(gym.Env):
         self.num_agents = num_agents
         self.vectorized = vectorized
 
-        self.client = PulseClient(host=host, port=port)
+        self.client = PulseClient(host=host, port=port, timeout=None)
 
         # Allow user to inject custom formatting logic; fallback to anchor selection defaults
         self.action_space = action_space or spaces.MultiBinary(num_anchors)

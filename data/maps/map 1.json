@@ -52,15 +52,15 @@
                 ]
             ],
             "color": [
-                255,
                 85,
+                170,
                 0
             ],
             "parameters": {
                 "path_loss_exponent": 3.07,
                 "shadow_fading_std": 3.9,
                 "frequency_decay_factor": 1.0,
-                "error_bias": 0.09999999999999999,
+                "error_bias": 0.1,
                 "noise_factor": 1.5,
                 "rms_delay_spread": 2e-08,
                 "sv_params": {
@@ -96,15 +96,15 @@
                 ]
             ],
             "color": [
-                255,
                 85,
+                170,
                 0
             ],
             "parameters": {
                 "path_loss_exponent": 3.07,
                 "shadow_fading_std": 3.9,
                 "frequency_decay_factor": 1.0,
-                "error_bias": 0.09999999999999999,
+                "error_bias": 0.1,
                 "noise_factor": 1.5,
                 "rms_delay_spread": 2e-08,
                 "sv_params": {
@@ -140,15 +140,15 @@
                 ]
             ],
             "color": [
-                255,
                 85,
+                170,
                 0
             ],
             "parameters": {
                 "path_loss_exponent": 3.07,
                 "shadow_fading_std": 3.9,
                 "frequency_decay_factor": 1.0,
-                "error_bias": 0.09999999999999999,
+                "error_bias": 0.1,
                 "noise_factor": 1.5,
                 "rms_delay_spread": 2e-08,
                 "sv_params": {
@@ -184,15 +184,15 @@
                 ]
             ],
             "color": [
-                255,
                 85,
+                170,
                 0
             ],
             "parameters": {
                 "path_loss_exponent": 3.07,
                 "shadow_fading_std": 3.9,
                 "frequency_decay_factor": 1.0,
-                "error_bias": 0.09999999999999999,
+                "error_bias": 0.1,
                 "noise_factor": 1.5,
                 "rms_delay_spread": 2e-08,
                 "sv_params": {
@@ -228,15 +228,15 @@
                 ]
             ],
             "color": [
-                255,
                 85,
+                170,
                 0
             ],
             "parameters": {
                 "path_loss_exponent": 3.07,
                 "shadow_fading_std": 3.9,
                 "frequency_decay_factor": 1.0,
-                "error_bias": 0.09999999999999999,
+                "error_bias": 0.1,
                 "noise_factor": 1.5,
                 "rms_delay_spread": 2e-08,
                 "sv_params": {
@@ -272,15 +272,15 @@
                 ]
             ],
             "color": [
-                255,
                 85,
+                170,
                 0
             ],
             "parameters": {
                 "path_loss_exponent": 3.07,
                 "shadow_fading_std": 3.9,
                 "frequency_decay_factor": 1.0,
-                "error_bias": 0.09999999999999999,
+                "error_bias": 0.1,
                 "noise_factor": 1.5,
                 "rms_delay_spread": 2e-08,
                 "sv_params": {
@@ -316,15 +316,15 @@
                 ]
             ],
             "color": [
-                255,
                 85,
+                170,
                 0
             ],
             "parameters": {
                 "path_loss_exponent": 3.07,
                 "shadow_fading_std": 3.9,
                 "frequency_decay_factor": 1.0,
-                "error_bias": 0.09999999999999999,
+                "error_bias": 0.1,
                 "noise_factor": 1.5,
                 "rms_delay_spread": 2e-08,
                 "sv_params": {
@@ -360,15 +360,15 @@
                 ]
             ],
             "color": [
-                255,
                 85,
+                170,
                 0
             ],
             "parameters": {
                 "path_loss_exponent": 3.07,
                 "shadow_fading_std": 3.9,
                 "frequency_decay_factor": 1.0,
-                "error_bias": 0.09999999999999999,
+                "error_bias": 0.1,
                 "noise_factor": 1.5,
                 "rms_delay_spread": 2e-08,
                 "sv_params": {
@@ -404,15 +404,15 @@
                 ]
             ],
             "color": [
-                255,
                 85,
+                170,
                 0
             ],
             "parameters": {
                 "path_loss_exponent": 3.07,
                 "shadow_fading_std": 3.9,
                 "frequency_decay_factor": 1.0,
-                "error_bias": 0.09999999999999999,
+                "error_bias": 0.1,
                 "noise_factor": 1.5,
                 "rms_delay_spread": 2e-08,
                 "sv_params": {
@@ -448,15 +448,15 @@
                 ]
             ],
             "color": [
-                255,
                 85,
+                170,
                 0
             ],
             "parameters": {
                 "path_loss_exponent": 3.07,
                 "shadow_fading_std": 3.9,
                 "frequency_decay_factor": 1.0,
-                "error_bias": 0.09999999999999999,
+                "error_bias": 0.1,
                 "noise_factor": 1.5,
                 "rms_delay_spread": 2e-08,
                 "sv_params": {
@@ -492,15 +492,15 @@
                 ]
             ],
             "color": [
-                255,
                 85,
+                170,
                 0
             ],
             "parameters": {
                 "path_loss_exponent": 3.07,
                 "shadow_fading_std": 3.9,
                 "frequency_decay_factor": 1.0,
-                "error_bias": 0.09999999999999999,
+                "error_bias": 0.1,
                 "noise_factor": 1.5,
                 "rms_delay_spread": 2e-08,
                 "sv_params": {
@@ -536,15 +536,15 @@
                 ]
             ],
             "color": [
-                255,
                 85,
+                170,
                 0
             ],
             "parameters": {
                 "path_loss_exponent": 3.07,
                 "shadow_fading_std": 3.9,
                 "frequency_decay_factor": 1.0,
-                "error_bias": 0.09999999999999999,
+                "error_bias": 0.1,
                 "noise_factor": 1.5,
                 "rms_delay_spread": 2e-08,
                 "sv_params": {
@@ -557,7 +557,29 @@
         }
     ],
     "algorithm": "Adaptive Extended Kalman Filter",
+    "algorithm_config": {
+        "name": "Adaptive Extended Kalman Filter",
+        "uses_imu": false
+    },
+    "tag_config": {
+        "imu_data_on": true
+    },
     "movement_pattern": "Custom:log_traj",
     "movement_speed": 4.8,
-    "timestep_ms": 5
+    "timestep_ms": 5,
+    "uwb_config": {
+        "channel": "5",
+        "environment": "Indoor Office",
+        "noise_model": "Gaussian",
+        "tx_gain": 0.0,
+        "rx_gain": 0.0,
+        "noise_figure": 6.0,
+        "los_path_loss": 1.63,
+        "los_shadowing": 1.9,
+        "freq_decay": 1.0,
+        "cluster_decay": 14.6,
+        "ray_decay": 0.34,
+        "toa_threshold": 0.1,
+        "fixed_noise": 0.1
+    }
 }

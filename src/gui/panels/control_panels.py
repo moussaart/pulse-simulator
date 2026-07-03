@@ -507,6 +507,30 @@ class ControlPanelFactory:
         # Remove Fixed Pt: label from the grid to save space, rely on prefixes
         movement_layout.addLayout(fp_layout, 4, 0, 1, 2)
         movement_layout.addWidget(target_point_btn, 4, 2)
+        # Motion Classification Options
+        classifier_checkbox = QCheckBox("Enable Motion Classification")
+        classifier_combo = QComboBox()
+        classifier_combo.addItems(["Method 1: Gyro Kinematic", "Method 2: PCA", "Method 3: Centripetal", "Method 4: Variance/ZCR"])
+        classifier_combo.setEnabled(False) # Disabled by default until checkbox is checked
+        
+        # Enable/Disable combo based on checkbox
+        classifier_checkbox.toggled.connect(classifier_combo.setEnabled)
+        
+        # Add to layout
+        movement_layout.addWidget(classifier_checkbox, 5, 0, 1, 3)
+        movement_layout.addWidget(QLabel("Method:"), 6, 0)
+        movement_layout.addWidget(classifier_combo, 6, 1, 1, 2)
+        
+        # Result labels
+        classifier_truth_label = QLabel("Ground Truth: -")
+        classifier_pred_label = QLabel("Prediction: -")
+        
+        # Apply slight styling for visibility
+        classifier_truth_label.setStyleSheet("color: #777;")
+        classifier_pred_label.setStyleSheet("color: #007bff; font-weight: bold;")
+        
+        movement_layout.addWidget(classifier_truth_label, 7, 0, 1, 3)
+        movement_layout.addWidget(classifier_pred_label, 8, 0, 1, 3)
         
         movement_group.setLayout(movement_layout)
         
@@ -523,7 +547,11 @@ class ControlPanelFactory:
             'play_exact_btn': play_exact_btn,
             'target_point_btn': target_point_btn,
             'fp_x_spin': fp_x_spin,
-            'fp_y_spin': fp_y_spin
+            'fp_y_spin': fp_y_spin,
+            'classifier_checkbox': classifier_checkbox,
+            'classifier_combo': classifier_combo,
+            'classifier_truth_label': classifier_truth_label,
+            'classifier_pred_label': classifier_pred_label
         }
         
         return movement_group, widgets

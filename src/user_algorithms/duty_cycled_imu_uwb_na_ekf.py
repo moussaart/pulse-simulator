@@ -92,6 +92,31 @@ class DutyCycledImuUwbNaEkfAlgorithm(BaseLocalizationAlgorithm):
                 f"active_window ({self.active_window}) cannot exceed cycle_length ({self.cycle_length})"
             )
 
+    def set_duty_cycle(self, cycle_length: float, active_window: float) -> None:
+        """
+        Dynamically update the duty-cycle parameters at runtime.
+
+        Called by the RL agent to adjust T_IMU and T_UWB between steps.
+
+        Args:
+            cycle_length:  Total cycle period in seconds (T_IMU + T_UWB).
+            active_window: UWB-active portion in seconds (T_UWB).
+                           Must be <= cycle_length.
+        """
+        cycle_length = float(cycle_length)
+        active_window = float(active_window)
+        if active_window > cycle_length:
+            raise ValueError(
+                f"active_window ({active_window}) cannot exceed cycle_length ({cycle_length})"
+            )
+        if cycle_length <= 0 or active_window < 0:
+            raise ValueError(
+                f"cycle_length must be > 0 and active_window >= 0, "
+                f"got cycle_length={cycle_length}, active_window={active_window}"
+            )
+        self.cycle_length = cycle_length
+        self.active_window = active_window
+
     # ------------------------------------------------------------------ #
     #  BaseLocalizationAlgorithm interface                                #
     # ------------------------------------------------------------------ #
@@ -171,6 +196,10 @@ class DutyCycledImuUwbNaEkfAlgorithm(BaseLocalizationAlgorithm):
                 "gyro_bias": float(gyro_bias),
                 "cycle_time": float(cycle_time),
                 "uwb_window_open": uwb_window_open,
+                "cycle_length": float(self.cycle_length),
+                "active_window": float(self.active_window),
+                "t_imu": float(self.cycle_length - self.active_window),
+                "t_uwb": float(self.active_window),
             },
         )
 

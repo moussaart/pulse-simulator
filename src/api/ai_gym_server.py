@@ -135,6 +135,7 @@ class AIGymServer:
 
     def _handle_client(self):
         """Reads actions back from the RL client."""
+        reader = None
         try:
             reader = self.client_socket.makefile('r', encoding='utf-8')
             for line in reader:
@@ -160,6 +161,9 @@ class AIGymServer:
         except Exception as e:
             print(f"[AIGymServer] Client disconnected: {e}")
         finally:
+            if reader is not None:
+                try: reader.close()
+                except: pass
             if self.client_socket:
                 try: self.client_socket.close()
                 except: pass

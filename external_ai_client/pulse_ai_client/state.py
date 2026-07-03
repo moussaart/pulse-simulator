@@ -67,6 +67,21 @@ class EnvironmentConfig:
     movement_speed: float = 1.0
     movement_pattern: str = "Circular"
     measurement_source: str = "uwb"
+    imu_period: float = 0.01
+    uwb_period: float = 0.1
+
+
+@dataclass
+class DutyCycleInfo:
+    """Duty-cycle state metadata from the algorithm."""
+    cycle_length: float = 0.0
+    active_window: float = 0.0
+    t_imu: float = 0.0
+    t_uwb: float = 0.0
+    uwb_window_open: bool = False
+    cycle_time: float = 0.0
+    shadow_imu_position: Optional[List[float]] = None
+    shadow_imu_error: Optional[float] = None
 
 
 @dataclass
@@ -98,6 +113,18 @@ class PulseState:
     precision: PrecisionInfo = field(default_factory=PrecisionInfo)
     energy: EnergyInfo = field(default_factory=EnergyInfo)
     environment: EnvironmentConfig = field(default_factory=EnvironmentConfig)
+    duty_cycle: DutyCycleInfo = field(default_factory=DutyCycleInfo)
+
+    @classmethod
+    def _parse_environment(cls, env_data: Optional[dict]) -> EnvironmentConfig:
+        if not env_data:
+            return EnvironmentConfig()
+        valid_keys = {"dt", "movement_speed", "movement_pattern", "measurement_source", "imu_period", "uwb_period"}
+        filtered = {k: v for k, v in env_data.items() if k in valid_keys}
+        # Fallback values if imu_period/uwb_period not provided by server
+        if "imu_period" not in filtered and "dt" in filtered:
+            filtered["imu_period"] = filtered["dt"]
+        return EnvironmentConfig(**filtered)
 
     @classmethod
     def from_dict(cls, data: dict) -> "PulseState":
@@ -117,7 +144,8 @@ class PulseState:
             algorithm=AlgorithmInfo(**data["algorithm"]) if "algorithm" in data else AlgorithmInfo(),
             precision=PrecisionInfo(**data["precision"]) if "precision" in data else PrecisionInfo(),
             energy=EnergyInfo(**data["energy"]) if "energy" in data else EnergyInfo(),
-            environment=EnvironmentConfig(**data["environment"]) if "environment" in data else EnvironmentConfig(),
+            environment=cls._parse_environment(data.get("environment")),
+            duty_cycle=DutyCycleInfo(**data["duty_cycle"]) if "duty_cycle" in data else DutyCycleInfo(),
         )
 
     @property

@@ -404,6 +404,8 @@ class AITrainingAPI:
         channel_model=None,
         measurement_source: Optional[str] = None,
         active_anchor_count: Optional[int] = None,
+        cumulative_energy_J: float = 0.0,
+        algo_extra_data: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         """
         Build the complete enriched observation dictionary for one agent at
@@ -503,12 +505,25 @@ class AITrainingAPI:
         energy_data = {
             "total_power_mW": round(_result.total_power_mW, 4),
             "step_energy_uJ": round(_result.total_power_mW * dt * 1000.0, 4),
-            "cumulative_energy_J": 0.0,  # Not tracked here; server-side is authoritative
+            "cumulative_energy_J": round(cumulative_energy_J, 6),
             "battery_life_hours": round(_result.battery_life_hours, 2),
             "duty_cycle_percent": round(_result.duty_cycle_percent, 4),
             "ranging_mode": _result.ranging_mode,
             "uwb_active_power_mW": round(_result.uwb_active_power_mW, 4),
             "imu_power_mW": round(_result.imu_power_mW, 4),
+        }
+
+        # Duty-cycle metadata from the EKF algorithm's extra_data
+        _extra = algo_extra_data or {}
+        duty_cycle_info = {
+            "cycle_length": _extra.get("cycle_length", 0.0),
+            "active_window": _extra.get("active_window", 0.0),
+            "t_imu": _extra.get("t_imu", 0.0),
+            "t_uwb": _extra.get("t_uwb", 0.0),
+            "uwb_window_open": _extra.get("uwb_window_open", False),
+            "cycle_time": _extra.get("cycle_time", 0.0),
+            "shadow_imu_position": _extra.get("shadow_imu_position", None),
+            "shadow_imu_error": _extra.get("shadow_imu_error", None),
         }
 
         # Build the complete observation
@@ -567,12 +582,17 @@ class AITrainingAPI:
             # Energy
             "energy": energy_data,
 
+            # Duty-cycle state (from EKF algorithm)
+            "duty_cycle": duty_cycle_info,
+
             # Environment config
             "environment": {
                 "dt": float(dt),
                 "movement_speed": float(movement_speed),
                 "movement_pattern": movement_pattern,
                 "measurement_source": effective_source,
+                "imu_period": float(dt),
+                "uwb_period": float(1.0 / self._energy_calculator.config.uwb_frequency_hz) if self._energy_calculator.config.uwb_frequency_hz > 0 else 0.1,
             },
         }
 

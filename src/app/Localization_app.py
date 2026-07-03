@@ -478,6 +478,17 @@ class LocalizationApp(QMainWindow):
             self.fp_x_spin = movement_widgets.get('fp_x_spin')
             self.fp_y_spin = movement_widgets.get('fp_y_spin')
             
+            # Motion Classifier
+            self.classifier_checkbox = movement_widgets.get('classifier_checkbox')
+            self.classifier_combo = movement_widgets.get('classifier_combo')
+            self.classifier_truth_label = movement_widgets.get('classifier_truth_label')
+            self.classifier_pred_label = movement_widgets.get('classifier_pred_label')
+            
+            if self.classifier_checkbox:
+                self.classifier_checkbox.stateChanged.connect(self.update_motion_classifier_state)
+            if self.classifier_combo:
+                self.classifier_combo.currentIndexChanged.connect(self.update_motion_classifier_state)
+            
             self.pattern_combo.currentTextChanged.connect(self.update_movement_pattern)
             self.timestep_slider.valueChanged.connect(self.update_timestep_with_label)
             self.speed_slider.valueChanged.connect(self.update_speed_with_label)
@@ -870,7 +881,11 @@ class LocalizationApp(QMainWindow):
         # Reset simulation manager (clears recorder, resets state)
         self.simulation_manager.reset()
         
-        # Reset states
+        self.enable_motion_class = False
+        self.motion_class_method = "Method 1: Gyro Kinematic"
+        
+        # State variables
+        self.is_running = False
         self.initialize_simulation()
         
         # Set current speed from slider
@@ -1380,7 +1395,20 @@ class LocalizationApp(QMainWindow):
         speed = self.speed_slider.value() / 10.0
         self.speed_value_label.setText(f"{speed:.1f} m/s")
         self.movement_speed = speed
-    
+
+    def update_motion_classifier_state(self):
+        """Update motion classifier enablement and selected method from the UI"""
+        if hasattr(self, 'classifier_checkbox') and self.classifier_checkbox:
+            self.enable_motion_class = self.classifier_checkbox.isChecked()
+        if hasattr(self, 'classifier_combo') and self.classifier_combo:
+            self.motion_class_method = self.classifier_combo.currentText()
+            
+    def update_motion_classification_labels(self, truth: str, pred: str):
+        if hasattr(self, 'classifier_truth_label') and self.classifier_truth_label:
+            self.classifier_truth_label.setText(f"Ground Truth: {truth}")
+        if hasattr(self, 'classifier_pred_label') and self.classifier_pred_label:
+            self.classifier_pred_label.setText(f"Prediction: {pred}")
+
     def sync_energy_parameters(self):
         """Syncs the energy calculator configuration with current UI and simulation state, then updates displays."""
         if not hasattr(self, 'energy_calculator') or not hasattr(self, 'energy_widgets'):

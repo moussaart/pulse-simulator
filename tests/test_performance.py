@@ -19,7 +19,7 @@ import pytest
 # Ensure project root is on path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from src.core.uwb.uwb_devices import Position, UWBAnchor, UWBTag
+from src.core.uwb.uwb_devices import Position, Anchor as UWBAnchor, Tag as UWBTag
 from src.core.uwb.channel_model import UWBChannelModel
 from src.core.parallel.gpu_backend import gpu_manager
 from src.core.parallel.geometry_kernels import batch_los_check_gpu, _batch_los_check_numpy
@@ -35,7 +35,9 @@ def _create_anchors(n, spread=20.0):
         angle = 2 * np.pi * i / n
         x = spread * np.cos(angle)
         y = spread * np.sin(angle)
-        anchors.append(UWBAnchor(f"A{i}", Position(x, y)))
+        anchor = UWBAnchor(Position(x, y))
+        anchor.id = f"A{i}"
+        anchors.append(anchor)
     return anchors
 
 
@@ -118,7 +120,8 @@ class TestLOSPerformance:
         """Sequential per-anchor LOS check (baseline)."""
         anchors = _create_anchors(n_anchors)
         zones = _create_nlos_zones(10)
-        tag = UWBTag("T1", Position(1.0, 2.0))
+        tag = UWBTag(Position(1.0, 2.0))
+        tag.id = "T1"
         
         channel = UWBChannelModel()
         for z in zones:
@@ -179,7 +182,8 @@ class TestMeasurementPerformance:
     def test_channel_measurement(self, n_anchors):
         """Full channel model measurement (includes CIR generation)."""
         anchors = _create_anchors(n_anchors)
-        tag = UWBTag("T1", Position(1.0, 2.0))
+        tag = UWBTag(Position(1.0, 2.0))
+        tag.id = "T1"
         channel = UWBChannelModel()
         
         # Warmup

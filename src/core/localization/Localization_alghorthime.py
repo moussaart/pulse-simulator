@@ -226,18 +226,25 @@ class LocalizationAlgorthimes():
             if R is None or R.shape[0] != n_meas:
                 R = np.eye(n_meas, dtype=float) * 0.15**2
 
-            H = np.zeros((n_meas, n_ekf), dtype=float)
-            y_vec = np.zeros(n_meas, dtype=float)
-
-            for i in range(n_meas):
-                z_i = float(measurements[i])
-                if np.isnan(z_i) or z_i <= 0:
-                    continue
-                dx = state_pred[0] - float(anchors[i].position.x)
-                dy = state_pred[1] - float(anchors[i].position.y)
-                d = max(np.sqrt(dx**2 + dy**2), 1e-6)
-                H[i] = [dx / d, dy / d, 0.0, 0.0]
-                y_vec[i] = z_i - d
+            # Vectorized Jacobian calculation using GPU/CPU parallel backend
+            anchor_pos = np.array([[a.position.x, a.position.y] for a in anchors[:n_meas]], dtype=float)
+            H_vec, d_vec = vectorized_jacobian(state_pred, anchor_pos)
+            z_vec = np.array([float(measurements[i]) for i in range(n_meas)], dtype=float)
+            
+            # Mask out any NaN or non-positive measurements
+            valid_mask = ~np.isnan(z_vec) & (z_vec > 0)
+            if not np.all(valid_mask):
+                H = H_vec[valid_mask]
+                y_vec = z_vec[valid_mask] - d_vec[valid_mask]
+                n_meas = int(np.sum(valid_mask))
+                if n_meas == 0:
+                    # Fallback if no valid measurements remain
+                    has_uwb = False
+                elif R is not None and R.shape[0] != n_meas:
+                    R = np.eye(n_meas, dtype=float) * 0.15**2
+            else:
+                H = H_vec
+                y_vec = z_vec - d_vec
 
             # ── Adaptive R  (aekf.py §5.1) ──
             C_innov = np.outer(y_vec, y_vec)
@@ -444,18 +451,25 @@ class LocalizationAlgorthimes():
             if R is None or R.shape[0] != n_meas:
                 R = np.eye(n_meas, dtype=float) * 0.15**2
 
-            H = np.zeros((n_meas, n_ekf), dtype=float)
-            y_vec = np.zeros(n_meas, dtype=float)
-
-            for i in range(n_meas):
-                z_i = float(effective_measurements[i])
-                if np.isnan(z_i) or z_i <= 0:
-                    continue
-                dx = state_pred[0] - float(anchors[i].position.x)
-                dy = state_pred[1] - float(anchors[i].position.y)
-                d = max(np.sqrt(dx**2 + dy**2), 1e-6)
-                H[i] = [dx / d, dy / d, 0.0, 0.0]
-                y_vec[i] = z_i - d
+            # Vectorized Jacobian calculation using GPU/CPU parallel backend
+            anchor_pos = np.array([[a.position.x, a.position.y] for a in anchors[:n_meas]], dtype=float)
+            H_vec, d_vec = vectorized_jacobian(state_pred, anchor_pos)
+            z_vec = np.array([float(effective_measurements[i]) for i in range(n_meas)], dtype=float)
+            
+            # Mask out any NaN or non-positive measurements
+            valid_mask = ~np.isnan(z_vec) & (z_vec > 0)
+            if not np.all(valid_mask):
+                H = H_vec[valid_mask]
+                y_vec = z_vec[valid_mask] - d_vec[valid_mask]
+                n_meas = int(np.sum(valid_mask))
+                if n_meas == 0:
+                    # Fallback if no valid measurements remain
+                    has_uwb = False
+                elif R is not None and R.shape[0] != n_meas:
+                    R = np.eye(n_meas, dtype=float) * 0.15**2
+            else:
+                H = H_vec
+                y_vec = z_vec - d_vec
 
             C_innov = np.outer(y_vec, y_vec)
             R_candidate = C_innov - H @ P_pred @ H.T

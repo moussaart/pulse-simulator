@@ -14,6 +14,7 @@ from src.core.exceptions import (
     MeasurementError, InputValidationError,
 )
 from src.core.error_handler import SimulationErrorHandler
+from src.core.motion.motion_classifier import IndependentMotionClassifier
 import inspect
 import logging
 
@@ -64,6 +65,9 @@ class SimulationManager:
         self._anchor_pos_count = -1
         # Frame counter for rate-limited updates
         self._frame_count = 0
+        
+        # Independent real-time motion classifier
+        self.motion_classifier = IndependentMotionClassifier()
         
     # --- Cached anchor position helpers ---
     
@@ -161,6 +165,14 @@ class SimulationManager:
                 except Exception as e:
                     raise SimulationError.from_exception(e, "tag position update")
                 
+                # Conditionally run motion classification
+                if getattr(self.parent, 'enable_motion_class', False):
+                    selected_method = getattr(self.parent, 'motion_class_method', "Method 1: Gyro Kinematic")
+                    class_result = self.motion_classifier.update(self.parent.tag, selected_method)
+                    if class_result:
+                        truth, pred = class_result
+                        if hasattr(self.parent, 'update_motion_classification_labels'):
+                            self.parent.update_motion_classification_labels(truth, pred)
                 # Validate tag position is finite
                 if not (np.isfinite(self.parent.tag.position.x) and np.isfinite(self.parent.tag.position.y)):
                     raise NumericalError(
@@ -393,8 +405,9 @@ class SimulationManager:
         self.recorder.set_snapshot_interval(interval)
     
     def reset(self):
-        """Reset simulation state for new run"""
+        """Reset the simulation state."""
         self.simulation_time = 0
+        self.motion_classifier.initialize()
         self.simulation_ended = False
         self.is_paused = True
         self.recorder.clear()
