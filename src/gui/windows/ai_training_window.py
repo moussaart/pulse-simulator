@@ -49,8 +49,8 @@ class AITrainingWindow(QMainWindow):
         self.setWindowTitle("PULSE - AI Training Environment")
         self.resize(800, 600)
         
-        # Algorithm name — use the duty-cycled EKF by default for RL training
-        self.algorithm = "Duty-Cycled IMU-UWB NA-EKF"
+        # Algorithm name — inherit from main app if available, else use default
+        self.algorithm = getattr(self.main_app, 'algorithm', "Duty-Cycled UWB-IMU NA-AEKF")
         
         # Algorithm dispatch mapping (same as SimulationManager)
         self.algorithm_methods = Alghortimes_doc().get_algorithm_methods()
@@ -64,8 +64,18 @@ class AITrainingWindow(QMainWindow):
         # AI Training Facade for enriched observation building
         self.training_api = AITrainingAPI(self.main_app)
         
-        # Measurement source: "uwb", "imu", or "both"
+        # Measurement source: inherit from main app's energy calculator config if available
         self._measurement_source = "uwb"
+        if hasattr(self.main_app, 'energy_calculator'):
+            config = self.main_app.energy_calculator.config
+            imu_enabled = getattr(config, 'imu_enabled', False)
+            uwb_disabled = getattr(config, 'uwb_disabled', False)
+            if imu_enabled and not uwb_disabled:
+                self._measurement_source = "both"
+            elif imu_enabled and uwb_disabled:
+                self._measurement_source = "imu"
+            elif not uwb_disabled:
+                self._measurement_source = "uwb"
         
         # Pause main simulation so we take control
         if hasattr(self.main_app, 'pause_simulation'):
@@ -111,16 +121,36 @@ class AITrainingWindow(QMainWindow):
         self.agent_algo_extra_data = []
 
         for _ in range(self.num_agents):
-            t = Tag(Position(0, 0))
+            # Inherit starting position from main app
+            start_x, start_y = 0.0, 0.0
+            if hasattr(self.main_app, 'tag') and hasattr(self.main_app.tag, 'position'):
+                start_x = self.main_app.tag.position.x
+                start_y = self.main_app.tag.position.y
+                
+            t = Tag(Position(start_x, start_y))
             t.imu_data_on = True
             self.agent_tags.append(t)
             self.agent_sim_times.append(0.0)
-            # 7-element state: [x, y, vx, vy, yaw, gyro_bias, cycle_time]
-            self.ekf_states.append(np.zeros(7))
-            self.ekf_Ps.append(np.eye(7) * 5.0)
+            
+            # Dynamically size the initial state vector based on the algorithm
+            is_duty_cycled = "Duty-Cycled" in self.algorithm or "Duty Cycled" in self.algorithm
+            is_imu_uwb = "IMU-UWB AEKF" in self.algorithm or "IMU-UWB Adaptive EKF" in self.algorithm or "IMU assisted NLOS-Aware AEKF" in self.algorithm or "IMU Only" in self.algorithm
+            
+            expected_dim = 8 if is_duty_cycled else (6 if is_imu_uwb else 4)
+            initial_state = np.zeros(expected_dim)
+            initial_state[0:2] = [start_x, start_y]
+            self.ekf_states.append(initial_state)
+            
+            if expected_dim == 8:
+                self.ekf_Ps.append(np.diag([5.0, 5.0, 10.0, 10.0, 1.0, 1.0, 0.1, 0.1]))
+            elif expected_dim == 6:
+                self.ekf_Ps.append(np.diag([1.0, 1.0, 0.1, 0.1, 0.05, 0.05]))
+            else:
+                self.ekf_Ps.append(np.eye(expected_dim) * 5.0)
+                
             self.ekf_initializeds.append(False)
-            self.ekf_Qs.append(getattr(self.main_app, 'aekf_Q', None))
-            self.ekf_Rs.append(getattr(self.main_app, 'aekf_R', None))
+            self.ekf_Qs.append(None)
+            self.ekf_Rs.append(None)
             self.prev_errors.append(0.0)
             self.curr_errors.append(0.0)
             self.agent_est_positions.append(None)
@@ -137,13 +167,22 @@ class AITrainingWindow(QMainWindow):
         self.agent_step_rewards = [0.0] * self.num_agents
         
         # ── Time-based simulation parameters ──────────────────────────────
-        self._tau_seconds = 1.0        # Macro-step duration (s), updated from client
-        self._imu_freq = 100.0         # IMU update rate (Hz)
-        self._uwb_freq = 10.0          # UWB update rate (Hz)
-        self._walking_speed = 1.4      # Human walking speed (m/s)
+        self._tau_seconds = self.dt  # Inherit from property
+        
+        # Try to inherit frequencies from main app config if available
+        self._imu_freq = 100.0
+        self._uwb_freq = 10.0
+        if hasattr(self.main_app, 'energy_calculator'):
+            config = self.main_app.energy_calculator.config
+            if hasattr(config, 'imu_frequency_hz'):
+                self._imu_freq = float(config.imu_frequency_hz)
+            if hasattr(config, 'uwb_frequency_hz'):
+                self._uwb_freq = float(config.uwb_frequency_hz)
+                
+        self._walking_speed = self.movement_speed  # Inherit from property
         
         # Per-agent last measurement source (for energy in next observation)
-        self.agent_last_sources = ["uwb"] * self.num_agents
+        self.agent_last_sources = [self._measurement_source] * self.num_agents
         
         # Timer for stepping the environment
         self.timer = QTimer(self)
@@ -477,11 +516,12 @@ class AITrainingWindow(QMainWindow):
             hue = int((i / max(1, self.num_agents)) * 360)
             color = QColor.fromHsl(hue, 255, 127)
             pen = pg.mkPen(color, width=2)
+            brush = pg.mkBrush(color.red(), color.green(), color.blue(), 30) # Add translucent fill
             lbl = f"Agent {i}"
-            self.error_curves.append(self.error_plot.plot(pen=pen, name=lbl))
-            self.reward_curves.append(self.reward_plot.plot(pen=pen, name=lbl))
+            self.error_curves.append(self.error_plot.plot(pen=pen, name=lbl, fillLevel=0, brush=brush))
+            self.reward_curves.append(self.reward_plot.plot(pen=pen, name=lbl, fillLevel=0, brush=brush))
             self.step_reward_curves.append(self.step_reward_plot.plot(pen=pen, name=lbl))
-            self.cumul_energy_curves.append(self.cumul_energy_plot.plot(pen=pen, name=lbl))
+            self.cumul_energy_curves.append(self.cumul_energy_plot.plot(pen=pen, name=lbl, fillLevel=0, brush=brush))
             
             # Create a separate technology timeline plot for this agent
             plot = create_themed_plot(
@@ -767,9 +807,15 @@ class AITrainingWindow(QMainWindow):
         
         # Reset all per-agent state
         for i in range(self.num_agents):
+            # Inherit starting position from main app
+            start_x, start_y = 0.0, 0.0
+            if hasattr(self.main_app, 'tag') and hasattr(self.main_app.tag, 'position'):
+                start_x = self.main_app.tag.position.x
+                start_y = self.main_app.tag.position.y
+                
             tag = self.agent_tags[i]
-            tag.position.x = 0.0
-            tag.position.y = 0.0
+            tag.position.x = start_x
+            tag.position.y = start_y
             tag.velocity.x = 0.0
             tag.velocity.y = 0.0
             tag.acceleration.x = 0.0
@@ -779,12 +825,23 @@ class AITrainingWindow(QMainWindow):
             tag.last_update_time = None  # force first-sample logic in MotionController
             
             self.agent_sim_times[i] = 0.0
-            # 7-element state: [x, y, vx, vy, yaw, gyro_bias, cycle_time]
-            self.ekf_states[i] = np.zeros(7)
-            self.ekf_Ps[i] = np.eye(7) * 5.0
-            self.ekf_initializeds[i] = False
-            self.ekf_Qs[i] = getattr(self.main_app, 'aekf_Q', None)
-            self.ekf_Rs[i] = getattr(self.main_app, 'aekf_R', None)
+            
+            is_duty_cycled = "Duty-Cycled" in self.algorithm or "Duty Cycled" in self.algorithm
+            is_imu_uwb = "IMU-UWB AEKF" in self.algorithm or "IMU-UWB Adaptive EKF" in self.algorithm or "IMU assisted NLOS-Aware AEKF" in self.algorithm or "IMU Only" in self.algorithm
+            
+            expected_dim = 8 if is_duty_cycled else (6 if is_imu_uwb else 4)
+            initial_state = np.zeros(expected_dim)
+            initial_state[0:2] = [start_x, start_y]
+            self.ekf_states[i] = initial_state
+            
+            if expected_dim == 8:
+                self.ekf_Ps[i] = np.diag([5.0, 5.0, 10.0, 10.0, 1.0, 1.0, 0.1, 0.1])
+            elif expected_dim == 6:
+                self.ekf_Ps[i] = np.diag([1.0, 1.0, 0.1, 0.1, 0.05, 0.05])
+            else:
+                self.ekf_Ps[i] = np.eye(expected_dim) * 5.0
+            self.ekf_Qs[i] = None
+            self.ekf_Rs[i] = None
             self.prev_errors[i] = 0.0
             self.curr_errors[i] = 0.0
             self.agent_est_positions[i] = None
@@ -794,7 +851,7 @@ class AITrainingWindow(QMainWindow):
             self.adaptive_iekf_innovation_histories[i] = None
             self.agent_cumul_rewards[i] = 0.0
             self.agent_step_rewards[i] = 0.0
-            self.agent_last_sources[i] = "uwb"
+            self.agent_last_sources[i] = self._measurement_source
             self.agent_algo_extra_data[i] = {}
         
         # Reset algorithm instances (so they re-initialize)
@@ -1079,12 +1136,30 @@ class AITrainingWindow(QMainWindow):
             
             if isinstance(action_obj, dict):
                 action_indices = action_obj.get("anchors", [])
+                if action_indices is None:
+                    action_indices = []
+                elif not isinstance(action_indices, (list, tuple)):
+                    action_indices = [action_indices]
+                
+                # Force to list of ints to prevent TypeError later
+                try:
+                    action_indices = [int(x) for x in action_indices if isinstance(x, (int, float, str))]
+                except ValueError:
+                    action_indices = []
+                
                 agent_algo_name = action_obj.get("filter", self.algorithm)
+                if not agent_algo_name or agent_algo_name not in self.algorithm_methods:
+                    agent_algo_name = self.algorithm
+                agent_algo_name = str(agent_algo_name)
+                    
                 agent_source = action_obj.get("measurement_source", self._measurement_source)
+                if not agent_source:
+                    agent_source = self._measurement_source
+                agent_source = str(agent_source)
             else:
-                action_indices = action_obj
-                agent_algo_name = self.algorithm
-                agent_source = self._measurement_source
+                action_indices = action_obj if isinstance(action_obj, (list, tuple)) else [action_obj]
+                agent_algo_name = str(self.algorithm)
+                agent_source = str(self._measurement_source)
                 
             if a_idx < len(self.agent_decision_labels):
                 # Cache badge style — only update labels, skip expensive setStyleSheet
@@ -1135,21 +1210,23 @@ class AITrainingWindow(QMainWindow):
             
             # Dynamically resize state and P if algorithm dimension requires it
             expected_dim = 4
-            if "Duty-Cycled" in agent_algo_name:
-                expected_dim = 7  # [x, y, vx, vy, yaw, gyro_bias, cycle_time]
-            elif "IMU assisted NLOS-Aware AEKF" in agent_algo_name or "IMU Only" in agent_algo_name:
+            if "Duty-Cycled" in agent_algo_name or "Duty Cycled" in agent_algo_name:
+                expected_dim = 8  # [x, y, vx, vy, ax, ay, yaw, gyro_bias]
+            elif "IMU-UWB AEKF" in agent_algo_name or "IMU-UWB Adaptive EKF" in agent_algo_name or "IMU assisted NLOS-Aware AEKF" in agent_algo_name or "IMU Only" in agent_algo_name:
                 expected_dim = 6
             
             if len(self.ekf_states[a_idx]) != expected_dim:
                 self.ekf_states[a_idx] = np.zeros(expected_dim)
                 self.ekf_states[a_idx][0:2] = true_pos
-                if expected_dim == 7:
-                    self.ekf_Ps[a_idx] = np.diag([1.0, 1.0, 0.1, 0.1, 0.05, 0.05, 0.01])
+                if expected_dim == 8:
+                    self.ekf_Ps[a_idx] = np.diag([5.0, 5.0, 10.0, 10.0, 1.0, 1.0, 0.1, 0.1])
                 elif expected_dim == 6:
                     self.ekf_Ps[a_idx] = np.diag([1.0, 1.0, 0.1, 0.1, 0.05, 0.05])
                 else:
                     self.ekf_Ps[a_idx] = np.eye(expected_dim) * 5.0
                 self.ekf_initializeds[a_idx] = False
+                self.ekf_Qs[a_idx] = None
+                self.ekf_Rs[a_idx] = None
             
             try:
                 method = self.algorithm_methods.get(agent_algo_name)
@@ -1193,15 +1270,8 @@ class AITrainingWindow(QMainWindow):
                     
                     algo_instance = self.algorithm_instances[(agent_algo_name, a_idx)]
                     
-                    # Ensure Q and R are initialized and have correct dimensions (avoids aekf.py crashes)
+                    # Ensure R is sized correctly to avoid dynamic anchor selection crashes
                     num_anchors = len(chosen_anchors)
-                    
-                    # 1. Initialize Q if missing (Process Noise)
-                    if self.ekf_Qs[a_idx] is None:
-                        q_noise = 0.1
-                        self.ekf_Qs[a_idx] = np.eye(4) * q_noise
-                        
-                    # 2. Initialize or Resize R if missing or wrong dimension (Measurement Noise)
                     if self.ekf_Rs[a_idx] is None or self.ekf_Rs[a_idx].shape[0] != num_anchors:
                         r_noise = 0.15
                         self.ekf_Rs[a_idx] = np.eye(num_anchors) * (r_noise**2)
@@ -1242,136 +1312,44 @@ class AITrainingWindow(QMainWindow):
                     if getattr(output, 'extra_data', None):
                         self.agent_algo_extra_data[a_idx] = output.extra_data
                 elif method:
-                    # Function-based algorithms (legacy)
-                    # Retrieve cached LOS bits (0 for LOS, 1 for NLOS)
-                    cached_los_bits = [0 if self._agent_los_cache[a_idx].get(a.id, True) else 1 for a in chosen_anchors]
-                    
-                    if "Improved Adaptive EKF" in agent_algo_name:
+                    # Function-based algorithms (legacy static methods)
+                    if "IMU-UWB AEKF" in agent_algo_name:
                         result = method(
                             measurements=measurements_list,
                             tag=agent_tag,
                             anchors=chosen_anchors,
-                            aekf_state=self.ekf_states[a_idx],
-                            aekf_P=self.ekf_Ps[a_idx],
-                            aekf_initialized=self.ekf_initializeds[a_idx],
-                            dt=self.dt,
-                            mu=self.adaptive_iekf_mu,
-                            alpha=self.adaptive_iekf_alpha,
-                            xi=self.adaptive_iekf_xi,
-                            lambda_min=self.adaptive_iekf_lambda_min,
-                            lambda_max=self.adaptive_iekf_lambda_max,
-                            tau=self.adaptive_iekf_tau,
-                            iteration_count=self.adaptive_iekf_iteration_counts[a_idx],
-                            prev_R=self.adaptive_iekf_prev_Rs[a_idx],
-                            innovation_history=self.adaptive_iekf_innovation_histories[a_idx],
-                            imu_data_on=use_imu,
-                            u=u
-                        )
-                    elif "NLOS-Aware" in agent_algo_name:
-                        if "IMU assisted NLOS-Aware AEKF" in agent_algo_name:
-                            result = method(
-                                measurements=measurements_list,
-                                tag=agent_tag,
-                                anchors=chosen_anchors,
-                                state=self.ekf_states[a_idx],
-                                P=self.ekf_Ps[a_idx],
-                                initialized=self.ekf_initializeds[a_idx],
-                                is_los=cached_los_bits,
-                                alpha=self.los_aware_alpha,
-                                beta=self.los_aware_beta,
-                                nlos_factor=self.los_aware_nlos_factor,
-                                dt=self.dt,
-                                zupt_threshold=0.05,
-                                R=self.ekf_Rs[a_idx]
-                            )
-                        else:
-                            result = method(
-                                measurements=measurements_list,
-                                tag=agent_tag,
-                                anchors=chosen_anchors,
-                                aekf_state=self.ekf_states[a_idx],
-                                aekf_P=self.ekf_Ps[a_idx],
-                                aekf_initialized=self.ekf_initializeds[a_idx],
-                                is_los=cached_los_bits,
-                                alpha=self.los_aware_alpha,
-                                beta=self.los_aware_beta,
-                                nlos_factor=self.los_aware_nlos_factor,
-                                dt=self.dt,
-                                imu_data_on=use_imu,
-                                u=u,
-                                R=self.ekf_Rs[a_idx],
-                                Q=self.ekf_Qs[a_idx]
-                            )
-                    elif "Kalman" in agent_algo_name:
-                        if "Adaptive Extended Kalman Filter" in agent_algo_name:
-                            result = method(
-                                measurements=measurements_list,
-                                tag=agent_tag,
-                                anchors=chosen_anchors,
-                                aekf_state=self.ekf_states[a_idx],
-                                aekf_P=self.ekf_Ps[a_idx],
-                                aekf_initialized=self.ekf_initializeds[a_idx],
-                                dt=self.dt,
-                                Q=self.ekf_Qs[a_idx],
-                                R=self.ekf_Rs[a_idx],
-                                imu_data_on=use_imu,
-                                u=u
-                            )
-                        else:
-                            result = method(
-                                measurements_list, agent_tag, chosen_anchors,
-                                self.ekf_states[a_idx], self.ekf_Ps[a_idx],
-                                self.ekf_initializeds[a_idx], self.dt,
-                                imu_data_on=use_imu, u=u
-                            )
-                    elif "IMU Only" in agent_algo_name:
-                        measurements_imu = [float(agent_tag.imu_data.acc_x[-1]), 
-                                           float(agent_tag.imu_data.acc_y[-1])]
-                        result = method(
-                            tag=agent_tag,
-                            measurements=measurements_imu,
                             state=self.ekf_states[a_idx],
                             P=self.ekf_Ps[a_idx],
                             initialized=self.ekf_initializeds[a_idx],
-                            dt=self.dt
+                            alpha=self.los_aware_alpha,
+                            dt=self.dt,
+                            zupt_threshold=0.08,
+                            R=self.ekf_Rs[a_idx],
+                            Q=self.ekf_Qs[a_idx]
                         )
+                        (est_pos, self.ekf_states[a_idx], self.ekf_Ps[a_idx], 
+                         self.ekf_initializeds[a_idx], self.ekf_Qs[a_idx],
+                         self.ekf_Rs[a_idx]) = result
+                    elif "Duty Cycled IMU-UWB AEKF" in agent_algo_name:
+                        result = method(
+                            measurements=measurements_list,
+                            tag=agent_tag,
+                            anchors=chosen_anchors,
+                            state=self.ekf_states[a_idx],
+                            P=self.ekf_Ps[a_idx],
+                            initialized=self.ekf_initializeds[a_idx],
+                            alpha=self.los_aware_alpha,
+                            dt=self.dt,
+                            zupt_threshold=0.08,
+                            R=self.ekf_Rs[a_idx],
+                            Q=self.ekf_Qs[a_idx]
+                        )
+                        (est_pos, self.ekf_states[a_idx], self.ekf_Ps[a_idx], 
+                         self.ekf_initializeds[a_idx], self.ekf_Qs[a_idx],
+                         self.ekf_Rs[a_idx]) = result
                     else:
                         # Generic trilateration etc.
-                        result = method(measurements_list, chosen_anchors)
-                        
-                    # Unpack result
-                    if isinstance(result, tuple):
-                        if "Improved Adaptive EKF" in agent_algo_name:
-                            est_pos = result[0]
-                            self.adaptive_iekf_innovation_histories[a_idx] = result[1]
-                            self.ekf_states[a_idx] = result[2]
-                            self.ekf_Ps[a_idx] = result[3]
-                            self.ekf_initializeds[a_idx] = result[4]
-                            self.ekf_Qs[a_idx] = result[5]
-                            self.adaptive_iekf_prev_Rs[a_idx] = result[6]
-                            self.ekf_Rs[a_idx] = result[6]
-                        elif "IMU assisted NLOS-Aware AEKF" in agent_algo_name:
-                            est_pos = result[0]
-                            self.ekf_states[a_idx] = result[1]
-                            self.ekf_Ps[a_idx] = result[2]
-                            self.ekf_initializeds[a_idx] = result[3]
-                            self.ekf_Rs[a_idx] = result[4]
-                        elif len(result) >= 6:
-                            est_pos = result[0]
-                            self.ekf_states[a_idx] = result[1]
-                            self.ekf_Ps[a_idx] = result[2]
-                            self.ekf_initializeds[a_idx] = result[3]
-                            self.ekf_Qs[a_idx] = result[4]
-                            self.ekf_Rs[a_idx] = result[5]
-                        elif len(result) >= 4:
-                            est_pos = result[0]
-                            self.ekf_states[a_idx] = result[1]
-                            self.ekf_Ps[a_idx] = result[2]
-                            self.ekf_initializeds[a_idx] = result[3]
-                        else:
-                            est_pos = result[0]
-                    else:
-                        est_pos = result
+                        est_pos = method(measurements_list, chosen_anchors)
                 else:
                     # Fallback to trilateration
                     est_pos = LocalizationAlgorthimes.trilateration(measurements_list, chosen_anchors)

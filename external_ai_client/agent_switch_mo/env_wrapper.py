@@ -101,18 +101,16 @@ class MacroSwitchWrapper(gym.Wrapper):
     ) -> np.ndarray:
         """Compute reward over one τ-second macro-step for each agent.
         
-        Discrete Multi-Objective Reward:
+        Continuous Multi-Objective Reward:
         R = W_ERROR * r_error_mean + W_STD * r_error_std + W_ENERGY * r_energy
         
         Where:
           - r_error_mean:
-             +1 if e_mean < ERROR_TARGET_MEAN (0.1 m)
-             -1 if e_mean > ERROR_TARGET_MEAN (0.1 m)
-              0 otherwise
+             1.0 if e_mean <= ERROR_TARGET_MEAN
+             1.0 - (e_mean - ERROR_TARGET_MEAN) / ERROR_TARGET_MEAN if e_mean > ERROR_TARGET_MEAN (clamped to [-1.0, 1.0])
           - r_error_std:
-             +1 if e_std < ERROR_TARGET_STD (0.15 m)
-             -1 if e_std > ERROR_TARGET_STD (0.15 m)
-              0 otherwise
+             1.0 if e_std <= ERROR_TARGET_STD
+             1.0 - (e_std - ERROR_TARGET_STD) / ERROR_TARGET_STD if e_std > ERROR_TARGET_STD (clamped to [-1.0, 1.0])
           - r_energy:
              +1 if E_t < E_{t-1} (energy decreased / better)
              -1 if E_t > E_{t-1} (energy increased / worse)
@@ -163,23 +161,21 @@ class MacroSwitchWrapper(gym.Wrapper):
                 self.E_MIN = DEFAULT_IMU_POWER_MW * self.tau_seconds * 1000.0
                 self.E_MAX = DEFAULT_FUSION_POWER_MW * self.tau_seconds * 1000.0
 
-            # ── 1. Average Error Discrete Reward ──────────────────────────────
+            # ── 1. Average Error Continuous Reward ────────────────────────────
             e_mean = np.mean(errors)
-            if e_mean < ERROR_TARGET_MEAN:
+            if e_mean <= ERROR_TARGET_MEAN:
                 r_error_mean = 1.0
-            elif e_mean > ERROR_TARGET_MEAN:
-                r_error_mean = -1.0
             else:
-                r_error_mean = 0.0
+                r_error_mean = 1.0 - (e_mean - ERROR_TARGET_MEAN) / ERROR_TARGET_MEAN
+                r_error_mean = max(-1.0, float(r_error_mean))
 
-            # ── 2. Standard Deviation Discrete Reward ─────────────────────────
+            # ── 2. Standard Deviation Continuous Reward ───────────────────────
             e_std = np.std(errors)
-            if e_std < ERROR_TARGET_STD:
+            if e_std <= ERROR_TARGET_STD:
                 r_error_std = 1.0
-            elif e_std > ERROR_TARGET_STD:
-                r_error_std = -1.0
             else:
-                r_error_std = 0.0
+                r_error_std = 1.0 - (e_std - ERROR_TARGET_STD) / ERROR_TARGET_STD
+                r_error_std = max(-1.0, float(r_error_std))
 
             # ── 3. Energy Comparison Discrete Reward (t vs t-1) ───────────────
             E_prev = self.prev_energies[a_idx]

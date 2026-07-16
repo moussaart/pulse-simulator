@@ -255,8 +255,8 @@ class SimulationManager:
                     calc.config.num_anchors = len(self.parent.anchors)
                     
                     # Algorithm awareness
-                    is_imu_only = "imu only" in algo
-                    uses_imu = "imu" in algo or "hybrid" in algo
+                    is_imu_only = "imu only" in algo or "dead reckoning" in algo
+                    uses_imu = "imu" in algo or "hybrid" in algo or "dead reckoning" in algo
                     
                     # Check if the algorithm dynamically overrides the UWB active state
                     if "uwb_window_open" in self.last_algorithm_extra_data:
@@ -308,7 +308,8 @@ class SimulationManager:
                     measurements=measurements,
                     los_cache=self._frame_los_cache,
                     energy_consumed_J=energy_consumed_J,
-                    total_power_mW=total_power_mW
+                    total_power_mW=total_power_mW,
+                    extra_data=self.last_algorithm_extra_data
                 )
                 
                 # Update elapsed time display if available

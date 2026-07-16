@@ -82,8 +82,7 @@ def main():
     PORT = 5555  # Default port for PULSE simulator
     NUM_ANCHORS = 8
     NUM_AGENTS = 4
-    EPISODES = float('inf')  # Run forever until Ctrl+C or connection loss
-
+    EPISODES = 1  # Run for one episode only
     # Time-based simulation parameters (use module-level defaults)
     TAU_S = TAU_SECONDS           # Macro-step duration (seconds)
     IMU_HZ = IMU_FREQ_HZ         # IMU update rate (Hz)
@@ -138,9 +137,10 @@ def main():
     print(f"  UWB Ratio       : 1 UWB tick every {max(1, int(round(IMU_HZ / UWB_HZ)))} IMU ticks")
     print(f"  Action Space    : Tuple of (T_imu, T_fusion)")
     print("================================================================")
-    print(f"  Reward Formula (Discrete Multi-Objective):")
+    print(f"  Reward Formula (Continuous Multi-Objective):")
     print(f"  R = w_error * r_error_mean + w_std * r_error_std + w_energy * r_energy")
-    print(f"  Targets         : error_mean < {ERROR_TARGET_MEAN}m, error_std < {ERROR_TARGET_STD}m")
+    print(f"  Targets         : error_mean <= {ERROR_TARGET_MEAN}m, error_std <= {ERROR_TARGET_STD}m")
+    print(f"  Penalty         : Continuous Piecewise Linear when exceeding targets")
     print(f"  Weights         : w_error={W_ERROR}, w_std={W_STD}, w_energy={W_ENERGY}")
     print(f"  Mode            : Infinite Single Episode (Ctrl+C to stop)")
     print("=" * 64)
@@ -214,7 +214,7 @@ def main():
         print("  Agent is ready to train.\n")
 
         episode = current_episode
-        while True:
+        while episode < EPISODES:
             current_episode = episode
 
             # ── Check for shutdown request ────────────────────────────
@@ -325,13 +325,10 @@ def main():
                 # Print progress
                 loss_str = f"L={np.mean(episode_losses[-10:]):.4f}" if episode_losses else "L=N/A"
                 print(
-                    f"  [Ep {episode+1:>2} | t={sim_time:>6.1f}s]  "
-                    f"T_imu={a0_t_imu:.2f}s, T_fusion={a0_t_fusion:.2f}s (cycle={a0_tau:.2f}s)  "
-                    f"ē={mean_err:.3f}m  "
-                    f"E={a0_energy:.1f}µJ  "
-                    f"{loss_str}  "
-                    f"eps={epsilon:.2f}  "
-                    f"R={reward[0]:+.4f}"
+                    f"  [Time: {sim_time:>5.1f}s] "
+                    f"T_imu: {a0_t_imu:.2f}s | T_fusion: {a0_t_fusion:.2f}s | "
+                    f"Err: {mean_err:.2f}m | Energy: {a0_energy/1000:.1f}mJ | "
+                    f"Reward: {reward[0]:+.2f}"
                 )
 
                 # Free micro-states to prevent RAM leak

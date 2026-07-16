@@ -1933,6 +1933,17 @@ class LocalizationApp(QMainWindow):
                 # Add columns for each anchor
                 for anchor in self.anchors:
                     header += f",Dist_{anchor.id},NLOS_{anchor.id}"
+                # Collect extra keys from all snapshots
+                extra_keys = []
+                for snap in self.simulation_manager.recorder.snapshots:
+                    if hasattr(snap, 'extra_data') and snap.extra_data:
+                        for k in snap.extra_data.keys():
+                            if k not in extra_keys:
+                                extra_keys.append(k)
+                
+                for k in extra_keys:
+                    header += f",{k}"
+                    
                 f.write(header + "\n")
                 
                 # Data
@@ -1955,6 +1966,14 @@ class LocalizationApp(QMainWindow):
                             line += f",{dist},{1 if is_nlos else 0}"
                         else:
                             line += ",,"
+                            
+                    # Add extra data values
+                    if hasattr(snap, 'extra_data') and snap.extra_data:
+                        for k in extra_keys:
+                            val = snap.extra_data.get(k, "")
+                            line += f",{val}"
+                    else:
+                        line += "," * len(extra_keys)
                     
                     f.write(line + "\n")
 

@@ -6,6 +6,8 @@ build/
 dist/
 env/
 venv/
+uwb-imu-fusion-main/
+benchmark_output/
 myenv/
 graphify-out/
 installer/

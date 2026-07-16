@@ -4,8 +4,8 @@ PULSE AI - Markov Modulated Switching Agent (PyTorch DQN Edition)
                      MULTI-OBJECTIVE REWARD EDITION (Revision 4)
 
 Goal:
-    The agent learns a control policy using a discrete multi-objective reward
-    function (+1, 0, -1) to keep error below 0.1 m and standard deviation below 0.15 m,
+    The agent learns a control policy using a continuous multi-objective reward
+    function to keep error below 0.2 m and standard deviation below 0.15 m,
     and to minimize energy consumption by comparing the current step's energy
     consumption against the previous step's energy consumption.
 """

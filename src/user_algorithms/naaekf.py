@@ -23,7 +23,7 @@ class NaaekfAlgorithm(BaseLocalizationAlgorithm):
     ALPHA = 0.3   # smoothing factor for R
     BETA  = 0.5   # smoothing factor for Q
 
-    LAMBDA_NLOS = 2.0   # inflation factor applied to r_i when anchor i is NLOS
+    LAMBDA_NLOS = 5.0   # inflation factor applied to r_i when anchor i is NLOS
 
     # ------------------------------------------------------------------ #
     #  BaseLocalizationAlgorithm interface                                #

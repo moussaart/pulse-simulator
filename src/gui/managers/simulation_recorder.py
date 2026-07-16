@@ -20,6 +20,7 @@ class SimulationSnapshot:
     measurements: Dict[str, float] = field(default_factory=dict)
     energy_consumed_J: float = 0.0
     total_power_mW: float = 0.0
+    extra_data: Dict[str, Any] = field(default_factory=dict)
     
     def to_dict(self) -> dict:
         """Convert to dictionary for serialization"""
@@ -31,7 +32,8 @@ class SimulationSnapshot:
             'anchor_states': self.anchor_states,
             'measurements': self.measurements,
             'energy_consumed_J': self.energy_consumed_J,
-            'total_power_mW': self.total_power_mW
+            'total_power_mW': self.total_power_mW,
+            'extra_data': self.extra_data
         }
 
 
@@ -74,7 +76,8 @@ class SimulationRecorder:
                        measurements: list = None,
                        los_cache: dict = None,
                        energy_consumed_J: float = 0.0,
-                       total_power_mW: float = 0.0) -> bool:
+                       total_power_mW: float = 0.0,
+                       extra_data: dict = None) -> bool:
         """
         Record a simulation snapshot.
         
@@ -147,7 +150,8 @@ class SimulationRecorder:
             anchor_states=anchor_states,
             measurements=measurement_dict,
             energy_consumed_J=energy_consumed_J,
-            total_power_mW=total_power_mW
+            total_power_mW=total_power_mW,
+            extra_data=extra_data if extra_data is not None else {}
         )
         
         self.snapshots.append(snapshot)
