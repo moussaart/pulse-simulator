@@ -6,9 +6,7 @@ class Alghortimes_doc():
 
     def __init__(self):
         self.algorithm_methods = {
-            "Trilateration": LocalizationAlgorthimes.trilateration,
-            "IMU-UWB AEKF": LocalizationAlgorthimes.imu_uwb_aekf,
-            "Duty Cycled IMU-UWB AEKF": LocalizationAlgorthimes.duty_cycled_imu_uwb_aekf,
+            "Trilateration": LocalizationAlgorthimes.trilateration
         }
         
         # Load custom algorithms only once

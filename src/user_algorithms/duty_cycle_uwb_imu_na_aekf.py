@@ -37,7 +37,7 @@ class DutyCycleUwbImuFusionNaAekfAlgorithm(BaseLocalizationAlgorithm):
     BETA  = 0.5          # smoothing factor for Q adaptation
 
     # -- NLOS gating ------------------------------------------------------
-    LAMBDA_NLOS = 2.0    # inflation factor for r_i when anchor i is NLOS
+    LAMBDA_NLOS = 5.0    # inflation factor for r_i when anchor i is NLOS
 
     # -- IMU dead-reckoning parameters ------------------------------------
     OMEGA      = 0.7       # IMU-velocity blend weight in prediction

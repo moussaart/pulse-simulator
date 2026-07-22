@@ -177,7 +177,7 @@ class EnergyWindow(QDialog):
         cards_grid = QGridLayout()
         cards_grid.setSpacing(8)
 
-        self.card_total_power = MetricCard("Current Power", color="#26c6da")
+        self.card_total_power = MetricCard("Avg Power", color="#26c6da")
         self.card_total_energy = MetricCard("Total Consumed", color="#4fc3f7")
         self.card_battery_life = MetricCard("Battery Life", color="#81c784")
         self.card_energy_ranging = MetricCard("Energy / Ranging", color="#ffb74d")
@@ -257,7 +257,7 @@ class EnergyWindow(QDialog):
         result = self.calculator.calculate()
 
         # Summary cards
-        self.card_total_power.set_value(f"{result.total_power_mW:.2f}", "mW")
+        self.card_total_power.set_value(f"{result.average_power_mW:.2f}", "mW")
         self.card_total_energy.set_value(f"{result.total_energy_consumed_J:.4f}", "J")
         
         if result.battery_life_days < 1:
@@ -269,7 +269,7 @@ class EnergyWindow(QDialog):
             self.card_battery_life.set_value(f"{result.battery_life_days:.1f}", "days")
 
         self.card_energy_ranging.set_value(f"{result.energy_per_ranging_uJ:.2f}", "µJ")
-        self.card_duty_cycle.set_value(f"{result.duty_cycle_percent:.3f}", "%")
+        self.card_duty_cycle.set_value(f"{result.average_duty_cycle_percent:.3f}", "%")
 
         # Chart
         self.chart.update_chart(result)

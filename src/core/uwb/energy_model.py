@@ -137,6 +137,11 @@ class EnergyResult:
     total_current_mA: float = 0.0      # total_power_mW / voltage
     total_energy_consumed_J: float = 0.0 # Cumulative energy consumed over simulation
 
+    # ── Averages ──────────────────────────────────────────────────────────
+    average_power_mW: float = 0.0      # Average power over simulation
+    average_current_mA: float = 0.0    # Average current over simulation
+    average_duty_cycle_percent: float = 0.0 # Average duty cycle over simulation
+
     # ── Battery ───────────────────────────────────────────────────────────
     battery_life_hours: float = 0.0
     battery_life_days: float = 0.0
@@ -165,10 +170,13 @@ class EnergyResult:
             "imu_power_mW": round(self.imu_power_mW, 4),
             "total_power_mW": round(self.total_power_mW, 4),
             "total_current_mA": round(self.total_current_mA, 4),
+            "average_power_mW": round(self.average_power_mW, 4),
+            "average_current_mA": round(self.average_current_mA, 4),
             "total_energy_consumed_J": round(self.total_energy_consumed_J, 6),
             "battery_life_hours": round(self.battery_life_hours, 2),
             "battery_life_days": round(self.battery_life_days, 2),
             "duty_cycle_percent": round(self.duty_cycle_percent, 4),
+            "average_duty_cycle_percent": round(self.average_duty_cycle_percent, 4),
             "ranging_mode": self.ranging_mode,
             "uwb_frequency_hz": self.uwb_frequency_hz,
             "num_anchors": self.num_anchors,
@@ -197,6 +205,7 @@ class EnergyCalculator:
         
         # Cumulative tracking state
         self.cumulative_energy_uJ: float = 0.0
+        self.cumulative_uwb_active_time_s: float = 0.0
         self.total_simulation_time_s: float = 0.0
         self.step_count: int = 0
 
@@ -205,6 +214,7 @@ class EnergyCalculator:
     def reset_accumulator(self):
         """Reset the cumulative energy tracking state."""
         self.cumulative_energy_uJ = 0.0
+        self.cumulative_uwb_active_time_s = 0.0
         self.total_simulation_time_s = 0.0
         self.step_count = 0
         
@@ -219,13 +229,32 @@ class EnergyCalculator:
         # Power is in mW, dt is in s. Therefore dt * 1000 is in ms.
         # So mW * (dt * 1000) = uJ
         step_energy_uJ = result.total_power_mW * (dt * 1000.0)
+        step_uwb_active_time_s = (result.duty_cycle_percent / 100.0) * dt
         
         self.cumulative_energy_uJ += step_energy_uJ
+        self.cumulative_uwb_active_time_s += step_uwb_active_time_s
         self.total_simulation_time_s += dt
         self.step_count += 1
         
         # Update result with the cumulative state
         result.total_energy_consumed_J = self.cumulative_energy_uJ * 1e-6
+        
+        if self.total_simulation_time_s > 0:
+            result.average_power_mW = (self.cumulative_energy_uJ / 1000.0) / self.total_simulation_time_s
+            result.average_duty_cycle_percent = (self.cumulative_uwb_active_time_s / self.total_simulation_time_s) * 100.0
+        else:
+            result.average_power_mW = result.total_power_mW
+            result.average_duty_cycle_percent = result.duty_cycle_percent
+            
+        result.average_current_mA = result.average_power_mW / self.config.voltage if self.config.voltage > 0 else 0.0
+        
+        # Re-evaluate battery life using average current
+        if result.average_current_mA > 0:
+            result.battery_life_hours = self.config.battery_capacity_mAh / result.average_current_mA
+        else:
+            result.battery_life_hours = float("inf")
+        result.battery_life_days = result.battery_life_hours / 24.0
+        
         return result
 
     def calculate(self) -> EnergyResult:
@@ -285,9 +314,19 @@ class EnergyCalculator:
         total_power = uwb_active_power + tag_idle_power + imu_power  # mW
         total_current = total_power / cfg.voltage if cfg.voltage > 0 else 0.0  # mA
 
-        # --- Battery life ---
-        if total_current > 0:
-            battery_life_h = cfg.battery_capacity_mAh / total_current
+        # --- Averages ---
+        if self.total_simulation_time_s > 0:
+            average_power_mW = (self.cumulative_energy_uJ / 1000.0) / self.total_simulation_time_s
+            average_duty_cycle = self.cumulative_uwb_active_time_s / self.total_simulation_time_s
+        else:
+            average_power_mW = total_power
+            average_duty_cycle = duty_cycle
+            
+        average_current_mA = average_power_mW / cfg.voltage if cfg.voltage > 0 else 0.0
+
+        # --- Battery life (based on AVERAGE current) ---
+        if average_current_mA > 0:
+            battery_life_h = cfg.battery_capacity_mAh / average_current_mA
         else:
             battery_life_h = float("inf")
         battery_life_d = battery_life_h / 24.0
@@ -305,10 +344,13 @@ class EnergyCalculator:
             imu_power_mW=imu_power,
             total_power_mW=total_power,
             total_current_mA=total_current,
+            average_power_mW=average_power_mW,
+            average_current_mA=average_current_mA,
             total_energy_consumed_J=self.cumulative_energy_uJ * 1e-6,
             battery_life_hours=battery_life_h,
             battery_life_days=battery_life_d,
             duty_cycle_percent=duty_cycle * 100.0,
+            average_duty_cycle_percent=average_duty_cycle * 100.0,
             ranging_mode=mode.value,
             uwb_frequency_hz=cfg.uwb_frequency_hz,
             num_anchors=cfg.num_anchors,

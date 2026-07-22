@@ -1151,12 +1151,12 @@ class LocalizationApp(QMainWindow):
         # Update the main panel results labels
         self.energy_widgets['energy_msg_label'].setText(f"{result.energy_per_tx_message_uJ:.2f} µJ")
         self.energy_widgets['energy_ranging_label'].setText(f"{result.energy_per_ranging_uJ:.2f} µJ")
-        self.energy_widgets['total_power_label'].setText(f"{result.total_power_mW:.2f} mW")
+        self.energy_widgets['total_power_label'].setText(f"{result.average_power_mW:.2f} mW")
         self.energy_widgets['total_energy_label'].setText(f"{result.total_energy_consumed_J:.4f} J")
         
         # Battery life string
         if result.battery_life_days < 1:
-            batt_str = f"{result.battery_life_hours:.1f} h"
+            batt_str = f"{result.battery_life_hours:.1f} d"
         elif result.battery_life_days > 365:
             batt_str = f"{(result.battery_life_days / 365):.1f} y"
         else:
@@ -1877,8 +1877,7 @@ class LocalizationApp(QMainWindow):
                 if hasattr(self.tag, 'imu_data'):
                     data = self.tag.imu_data
                     for i in range(len(data.timestamps)):
-                        f.write(f"{data.timestamps[i]},{data.acc_x[i]},{data.acc_y[i]},{data.acc_z[i]},"
-                                f"{data.gyro_x[i]},{data.gyro_y[i]},{data.gyro_z[i]}\n")
+                        f.write(f"{data.timestamps[i]},{data.acc_x[i]},{data.acc_y[i]},{data.acc_z[i]},{data.gyro_x[i]},{data.gyro_y[i]},{data.gyro_z[i]}\n")
             
             # 3. Export Energy Profile
             if hasattr(self, 'energy_calculator'):
@@ -1909,9 +1908,9 @@ class LocalizationApp(QMainWindow):
                     f.write(f"UWB Active Power: {res.uwb_active_power_mW:.2f} mW\n")
                     f.write(f"Tag Idle Power: {res.tag_idle_power_mW:.2f} mW\n")
                     f.write(f"IMU Power: {res.imu_power_mW:.2f} mW\n")
-                    f.write(f"Total Power: {res.total_power_mW:.2f} mW\n")
-                    f.write(f"Total Current: {res.total_current_mA:.2f} mA\n")
-                    f.write(f"Duty Cycle: {res.duty_cycle_percent:.2f} %\n\n")
+                    f.write(f"Average Power: {res.average_power_mW:.2f} mW\n")
+                    f.write(f"Average Current: {res.average_current_mA:.2f} mA\n")
+                    f.write(f"Average Duty Cycle: {res.average_duty_cycle_percent:.2f} %\n\n")
                     
                     f.write("Simulation Totals & Battery:\n")
                     f.write("-" * 20 + "\n")
