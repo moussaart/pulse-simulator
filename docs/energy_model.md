@@ -63,6 +63,31 @@ Every TX or RX operation has an energy cost. These values are defined in the UWB
 
 These values represent the *total* energy consumed to transmit or receive a single message, accounting for preamble, payload, and processing overhead.
 
+#### Example: How Energy is Calculated
+
+For a single transmission (TX) or reception (RX) event (one data packet step), the total energy consumed depends on the specific event duration. According to the official DWM1001 Datasheet, the hardware operates at a typical supply voltage ($V$) of 3.3 V. The step-by-step breakdown of current, power, and energy consumption per event is detailed below:
+
+**1. Transmit (TX) Event**
+The module consumes less energy during a TX event because the radio transmitter only activates for a fraction of a millisecond to send a packet.
+*   **Mean TX Current ($I_{tx}$):** 82 mA
+*   **Peak TX Current:** 111 mA
+*   **Power Consumption ($P_{tx}$):** $82\text{ mA} \times 3.3\text{ V} = \mathbf{270.6\text{ mW}}$
+*   **Energy for One Step ($E_{tx}$):** For a typical UWB frame duration of 0.2 ms to 0.5 ms, a single TX step consumes approximately 54 µJ to 135 µJ (Microjoules).
+
+**2. Receive (RX) Event**
+The module consumes significantly more energy during an RX event because the receiver circuits must remain active to listen for incoming signals.
+*   **Mean RX Current ($I_{rx}$):** 134 mA
+*   **Peak RX Current:** 154 mA
+*   **Power Consumption ($P_{rx}$):** $134\text{ mA} \times 3.3\text{ V} = \mathbf{442.2\text{ mW}}$
+*   **Energy for One Step ($E_{rx}$):** For an RX window duration of 0.5 ms, a single RX step consumes approximately 221 µJ (Microjoules).
+
+**Summary Comparison Table**
+
+| Single Event Step | Mean Current | Power (at 3.3V) | Approx. Energy per Step |
+| :--- | :--- | :--- | :--- |
+| **Transmit (TX)** | 82 mA | 270.6 mW | ~90 µJ (assuming 0.33 ms frame) |
+| **Receive (RX)** | 134 mA | 442.2 mW | ~221 µJ (assuming 0.5 ms window) |
+
 ---
 
 ### 2.2 Ranging Protocol — Message Count

@@ -1,8 +1,8 @@
 {
   "uwb_profiles": {
     "DW1000": {
-      "energy_tx_uJ": 46.2,
-      "energy_rx_uJ": 108.9,
+      "energy_tx_uJ": 90,
+      "energy_rx_uJ": 221,
       "power_idle_mW": 19.8,
       "power_sleep_mW": 0.00033,
       "notes": "DW1000 default. TX/RX energy in µJ, Idle/Sleep power in mW."
@@ -12,8 +12,7 @@
     "Generic MEMS IMU": {
       "energy_active_uJ_per_sample": 34.6,
       "power_sleep_mW": 0.0198,
-      "sample_rate_hz": 100.0,
-      "notes": "Typical low-power 6-axis MEMS IMU. Active energy in µJ, Sleep power in mW."
+      "notes": "Typical low-power 6-axis MEMS IMU at 100 Hz. Active energy in µJ, Sleep power in mW."
     }
   }
 }
