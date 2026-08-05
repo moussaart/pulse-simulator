@@ -1,4 +1,7 @@
 import numpy as np
+import matplotlib
+matplotlib.use("QtAgg")          # reuse the running Qt event loop
+import matplotlib.pyplot as plt
 from src.core.localization.base_algorithm import AlgorithmInput, AlgorithmOutput
 from src.user_algorithms.duty_cycle_uwb_imu_na_aekf import DutyCycleUwbImuFusionNaAekfAlgorithm
 from src.user_algorithms.imuspeeddeadreckoningalgorithm import ImuspeeddeadreckoningalgorithmAlgorithm
@@ -28,11 +31,9 @@ class DutyCycleUwbImuFusionNaAekf2Algorithm(DutyCycleUwbImuFusionNaAekfAlgorithm
     # ================================================================== #
 
     # -- Duty-cycled UWB scheduling ---------------------------------------
-    DUTY_CYCLE_PERIOD = 6 # seconds
-    IMU_ONLY_PORCENTAGE = 0.75    # porcentage of IMU-only phase
-    HYBRID_PORCENTAGE   = 1-IMU_ONLY_PORCENTAGE  # porcentage of hybrid phase
-    IMU_ONLY_DURATION = DUTY_CYCLE_PERIOD * IMU_ONLY_PORCENTAGE   # seconds (duration of the dead-reckoning phase)
-    HYBRID_DURATION   = DUTY_CYCLE_PERIOD * HYBRID_PORCENTAGE   # seconds (duration of the fusion phase)
+    IMU_ONLY_DURATION = 3   # seconds (duration of the dead-reckoning phase)
+    HYBRID_DURATION   = 1   # seconds (duration of the fusion phase)
+    DUTY_CYCLE_PERIOD = IMU_ONLY_DURATION + HYBRID_DURATION
 
     # -- Transition tuning ------------------------------------------------
     # Covariance inflation factor applied to position states (x, y)
@@ -73,7 +74,7 @@ class DutyCycleUwbImuFusionNaAekf2Algorithm(DutyCycleUwbImuFusionNaAekfAlgorithm
 
     @property
     def name(self) -> str:
-        return "Duty-Cycled UWB-IMU NA-AEKF v2"
+        return "Duty-Cycled UWB-IMU NA-AEKF yaw testing"
 
     def initialize(self) -> None:
         super().initialize()
@@ -99,6 +100,27 @@ class DutyCycleUwbImuFusionNaAekf2Algorithm(DutyCycleUwbImuFusionNaAekfAlgorithm
         self._dr_Q:           np.ndarray | None = None
         self._dr_R:           np.ndarray | None = None
         self._dr_initialized: bool = False
+
+        # ── Real-time yaw plot ──────────────────────────────────────────
+        self._plot_times_fusion: list[float] = []
+        self._plot_yaw_fusion:   list[float] = []
+        self._plot_times_imu:    list[float] = []
+        self._plot_yaw_imu:      list[float] = []
+        self._sim_time: float = 0.0
+
+        plt.ion()                           # interactive mode ON
+        self._fig, self._ax = plt.subplots(figsize=(10, 4))
+        self._line_fusion, = self._ax.plot([], [], color="#1f77b4",
+                                           linewidth=1.2, label="Fusion (UWB+IMU)")
+        self._line_imu, = self._ax.plot([], [], color="#d62728",
+                                        linewidth=1.2, label="IMU-only (DR)")
+        self._ax.set_xlabel("Time (s)")
+        self._ax.set_ylabel("Yaw (°)")
+        self._ax.set_title("Real-Time Yaw  —  Fusion vs IMU-only")
+        self._ax.legend(loc="upper right")
+        self._ax.grid(True, alpha=0.3)
+        self._fig.tight_layout()
+        self._fig.show()
 
     # ------------------------------------------------------------------ #
     #  Main update                                                        #
@@ -139,12 +161,48 @@ class DutyCycleUwbImuFusionNaAekf2Algorithm(DutyCycleUwbImuFusionNaAekfAlgorithm
         # ── 5. Run the appropriate algorithm for this tick ──────────────
         if uwb_enabled:
             # --- FUSION TICK (full NA-AEKF) ---
-            return self._run_fusion_tick(input_data, state, covariance, Q, R,
-                                         initialized, uwb_enabled)
+            result = self._run_fusion_tick(input_data, state, covariance, Q, R,
+                                           initialized, uwb_enabled)
         else:
             # --- IMU-ONLY TICK (dead reckoning) ---
-            return self._run_dr_tick(input_data, state, covariance, Q, R,
-                                     initialized, uwb_enabled)
+            result = self._run_dr_tick(input_data, state, covariance, Q, R,
+                                       initialized, uwb_enabled)
+
+        # ── 6. Update real-time yaw plot ────────────────────────────────
+        self._sim_time += dt
+        self._update_yaw_plot(result, uwb_enabled)
+
+        return result
+
+    # ------------------------------------------------------------------ #
+    #  Real-time yaw plot helper                                          #
+    # ------------------------------------------------------------------ #
+
+    def _update_yaw_plot(self, result: AlgorithmOutput, uwb_enabled: bool) -> None:
+        """Append yaw to the appropriate series and refresh the plot."""
+        yaw_rad = 0.0
+        if result.extra_data and "yaw" in result.extra_data:
+            yaw_rad = result.extra_data["yaw"]
+        yaw_deg = np.degrees(yaw_rad)
+
+        if uwb_enabled:
+            self._plot_times_fusion.append(self._sim_time)
+            self._plot_yaw_fusion.append(yaw_deg)
+        else:
+            self._plot_times_imu.append(self._sim_time)
+            self._plot_yaw_imu.append(yaw_deg)
+
+        # Refresh plot data
+        self._line_fusion.set_data(self._plot_times_fusion, self._plot_yaw_fusion)
+        self._line_imu.set_data(self._plot_times_imu, self._plot_yaw_imu)
+
+        # Auto-scale axes
+        self._ax.relim()
+        self._ax.autoscale_view()
+
+        # Redraw
+        self._fig.canvas.draw_idle()
+        self._fig.canvas.flush_events()
 
     # ------------------------------------------------------------------ #
     #  Phase-transition helpers                                           #
@@ -181,8 +239,8 @@ class DutyCycleUwbImuFusionNaAekf2Algorithm(DutyCycleUwbImuFusionNaAekfAlgorithm
         self._dr_initialized = False  # let DR's own init logic run once
 
         # Seed the DR's heading from the saved yaw so heading is continuous
-        self._dr._yaw = self._saved_yaw
-        self._dr._gyro_bias = self._saved_gyro_bias
+        self._dr._yaw = 0
+        self._dr._gyro_bias = 0
         self._dr._initialized = True
         self._dr_initialized = True
 
@@ -211,11 +269,9 @@ class DutyCycleUwbImuFusionNaAekf2Algorithm(DutyCycleUwbImuFusionNaAekfAlgorithm
             state[6] = self._dr._yaw
             state[7] = self._dr._gyro_bias
 
-        # Inflate position and velocity covariance to reflect DR drift
+        # Inflate position covariance to reflect DR drift
         cov[0, 0] *= self.DR_TO_FUSION_COV_INFLATE
         cov[1, 1] *= self.DR_TO_FUSION_COV_INFLATE
-        cov[2, 2] *= self.DR_TO_FUSION_COV_INFLATE
-        cov[3, 3] *= self.DR_TO_FUSION_COV_INFLATE
 
         return state, cov, Q, R
 
@@ -373,18 +429,6 @@ class DutyCycleUwbImuFusionNaAekf2Algorithm(DutyCycleUwbImuFusionNaAekfAlgorithm
         # ZUPT
         if is_stationary:
             state, P = self._apply_zupt(state, P)
-        else:
-            # When moving, prevent unbounded yaw drift by gently pulling the 
-            # open-loop IMU heading toward the UWB-corrected velocity vector.
-            vx, vy = float(state[2]), float(state[3])
-            speed = np.hypot(vx, vy)
-            if speed > 0.3:  # Only correct if moving fast enough to have a stable heading
-                vel_yaw = float(np.arctan2(vy, vx))
-                # Smooth interpolation using complex numbers
-                alpha = 0.1
-                new_x = (1.0 - alpha) * np.cos(yaw) + alpha * np.cos(vel_yaw)
-                new_y = (1.0 - alpha) * np.sin(yaw) + alpha * np.sin(vel_yaw)
-                yaw = float(np.arctan2(new_y, new_x))
 
         # Covariance repair
         P = self._repair_covariance(P)

@@ -423,13 +423,22 @@ class SimulationManager:
         if hasattr(self.parent, 'export_btn'):
              self.parent.export_btn.setVisible(False)
         
-        # Reset algorithm instances
-        for name, instance in self.algorithm_instances.items():
-            try:
-                if hasattr(instance, 'initialize'):
-                    instance.initialize()
-            except Exception as e:
-                logger.warning(f"Error resetting algorithm {name}: {e}")
+        # Clear algorithm instances so they are re-created from the
+        # freshly-loaded classes on the next simulation tick.  This ensures
+        # that any changes made to the .py source files (e.g. editing
+        # IMU_ONLY_DURATION / HYBRID_DURATION) take effect immediately
+        # without restarting the whole application.
+        self.algorithm_instances.clear()
+
+        # Force-reload custom algorithm modules from disk so that class-level
+        # constants reflect the latest file contents.
+        try:
+            from src.core.localization.Alghortimes_doc import Alghortimes_doc
+            Alghortimes_doc._cached_algorithms = None
+            doc = Alghortimes_doc()
+            self._algorithm_methods = doc.get_algorithm_methods()
+        except Exception as e:
+            logger.warning(f"Error reloading algorithms on reset: {e}")
                 
         # Reset energy accumulator
         if hasattr(self.parent, 'energy_calculator'):

@@ -5,8 +5,7 @@ Estimates the energy consumption of a UWB tag during ranging operations.
 Supports SS-TWR and DS-TWR protocols, integrates IMU power consumption,
 and provides battery life estimation.
 
-Power values are based on the Decawave DW1000 datasheet defaults,
-but all parameters are user-configurable.
+Energy values are user-configurable or loaded from device_profiles.json.
 
 Usage:
     from src.core.uwb.energy_model import EnergyCalculator, EnergyConfig
@@ -47,52 +46,53 @@ _PROTOCOL_MSG_COUNT: Dict[RangingMode, tuple] = {
 class EnergyConfig:
     """
     All configurable parameters for UWB tag energy estimation.
-
-    Current values (mA) are based on the Decawave DW1000 datasheet.
-    Timing values (µs) represent typical frame durations for IEEE 802.15.4a.
     """
 
-    # ── Supply ────────────────────────────────────────────────────────────
-    voltage: float = 3.3                # Supply voltage (V)
+    # ── UWB Energy Per Operation (µJ) ────────────────────────────
+    energy_tx_uJ: float = 46.2       # Energy per TX frame
+    energy_rx_uJ: float = 108.9      # Energy per RX window
+    power_idle_mW: float = 19.8      # Idle power between rangings (mW)
+    power_sleep_mW: float = 0.00033  # Deep sleep power (mW)
 
-    # ── UWB Radio Currents (mA) ──────────────────────────────────────────
-    tx_current_mA: float = 70.0         # Transmit current
-    rx_current_mA: float = 110.0        # Receive current
-    idle_current_mA: float = 12.0       # Idle / listen current
-    sleep_current_mA: float = 0.001     # Deep-sleep current
+    # ── Ranging Protocol ─────────────────────────────────────────
+    ranging_mode: str = "SS-TWR"
+    uwb_frequency_hz: float = 10.0
+    num_anchors: int = 4
 
-    # ── UWB Timing per Message (µs) ──────────────────────────────────────
-    tx_duration_us: float = 200.0       # Duration of one TX frame
-    rx_duration_us: float = 300.0       # Duration of one RX window
-    processing_duration_us: float = 10.0  # MCU processing per message
-    processing_current_mA: float = 12.0   # MCU current during processing (defaults to idle)
-
-    # ── Ranging Protocol ──────────────────────────────────────────────────
-    ranging_mode: str = "SS-TWR"        # "SS-TWR" or "DS-TWR"
-    uwb_frequency_hz: float = 10.0     # Ranging rate (rangings per second)
-    num_anchors: int = 4               # Number of anchors being ranged
-
-    # ── IMU ───────────────────────────────────────────────────────────────
+    # ── IMU Energy ───────────────────────────────────────────────
     imu_enabled: bool = True
-    uwb_disabled: bool = False          # E.g., for "IMU Only" algorithm
-    imu_active_current_mA: float = 1.0  # Typical MEMS IMU active current
-    imu_sleep_current_mA: float = 0.006
-    imu_sample_rate_hz: float = 100.0   # IMU sampling rate
+    uwb_disabled: bool = False
+    imu_energy_active_uJ_per_sample: float = 0.033
+    imu_power_sleep_mW: float = 0.0198
+    imu_sample_rate_hz: float = 100.0
 
-    # ── Battery ───────────────────────────────────────────────────────────
-    battery_capacity_mAh: float = 225.0  # Typical coin-cell / small LiPo
+    # ── Battery ──────────────────────────────────────────────────
+    battery_capacity_mAh: float = 225.0
+    voltage: float = 3.3  # Kept ONLY for battery life estimation (V = I * R etc., P = V * I)
 
-    device_name: str = "Custom / DW1000 Default"
+    # ── Profile Names ────────────────────────────────────────────
+    uwb_profile_name: str = "DW1000"
+    imu_profile_name: str = "Generic MEMS IMU"
 
-    def apply_hardware_profile(self, profile_name: str):
-        """Update current consumption values based on a predefined hardware profile."""
-        from src.core.uwb.hardware_profiles import HardwareProfileManager
-        profile = HardwareProfileManager.get_profile(profile_name)
+    def apply_uwb_profile(self, profile_name: str):
+        """Update energy consumption values based on a predefined hardware profile."""
+        from src.core.uwb.hardware_profiles import DeviceProfileManager
+        profile = DeviceProfileManager.get_uwb_profile(profile_name)
         if profile:
-            self.device_name = profile.name
-            self.tx_current_mA = profile.tx_current_mA
-            self.rx_current_mA = profile.rx_current_mA
-            self.idle_current_mA = profile.idle_current_mA
+            self.uwb_profile_name = profile.name
+            self.energy_tx_uJ = profile.energy_tx_uJ
+            self.energy_rx_uJ = profile.energy_rx_uJ
+            self.power_idle_mW = profile.power_idle_mW
+            self.power_sleep_mW = profile.power_sleep_mW
+
+    def apply_imu_profile(self, profile_name: str):
+        from src.core.uwb.hardware_profiles import DeviceProfileManager
+        profile = DeviceProfileManager.get_imu_profile(profile_name)
+        if profile:
+            self.imu_profile_name = profile.name
+            self.imu_energy_active_uJ_per_sample = profile.energy_active_uJ_per_sample
+            self.imu_power_sleep_mW = profile.power_sleep_mW
+            self.imu_sample_rate_hz = profile.sample_rate_hz
 
     def get_ranging_mode(self) -> RangingMode:
         """Convert the string ranging_mode to the RangingMode enum."""
@@ -119,7 +119,6 @@ class EnergyResult:
     # ── Per-message ───────────────────────────────────────────────────────
     energy_per_tx_message_uJ: float = 0.0
     energy_per_rx_message_uJ: float = 0.0
-    energy_per_processing_message_uJ: float = 0.0  # MCU processing per message
 
     # ── Per-ranging exchange ──────────────────────────────────────────────
     energy_per_ranging_uJ: float = 0.0
@@ -129,7 +128,8 @@ class EnergyResult:
 
     # ── Continuous power breakdown ────────────────────────────────────────
     uwb_active_power_mW: float = 0.0   # Average UWB active power (TX+RX)
-    tag_idle_power_mW: float = 0.0     # Idle / sleep power
+    tag_idle_power_mW: float = 0.0     # Idle / standby power between rangings
+    tag_sleep_power_mW: float = 0.0    # Deep sleep power
     imu_power_mW: float = 0.0          # IMU contribution
 
     # ── Totals ────────────────────────────────────────────────────────────
@@ -140,27 +140,23 @@ class EnergyResult:
     # ── Averages ──────────────────────────────────────────────────────────
     average_power_mW: float = 0.0      # Average power over simulation
     average_current_mA: float = 0.0    # Average current over simulation
-    average_duty_cycle_percent: float = 0.0 # Average duty cycle over simulation
 
     # ── Battery ───────────────────────────────────────────────────────────
     battery_life_hours: float = 0.0
     battery_life_days: float = 0.0
-
-    # ── Duty cycle ────────────────────────────────────────────────────────
-    duty_cycle_percent: float = 0.0    # Fraction of time the radio is active
 
     # ── Protocol info ─────────────────────────────────────────────────────
     ranging_mode: str = ""
     uwb_frequency_hz: float = 0.0
     num_anchors: int = 0
     device_name: str = ""
+    imu_name: str = ""
 
     def to_dict(self) -> Dict[str, Any]:
         """Serialise to a flat dictionary, ready for JSON / API."""
         return {
             "energy_per_tx_message_uJ": round(self.energy_per_tx_message_uJ, 4),
             "energy_per_rx_message_uJ": round(self.energy_per_rx_message_uJ, 4),
-            "energy_per_processing_message_uJ": round(self.energy_per_processing_message_uJ, 4),
             "energy_per_ranging_uJ": round(self.energy_per_ranging_uJ, 4),
             "messages_per_ranging": self.messages_per_ranging,
             "tx_messages_per_ranging": self.tx_messages_per_ranging,
@@ -175,12 +171,11 @@ class EnergyResult:
             "total_energy_consumed_J": round(self.total_energy_consumed_J, 6),
             "battery_life_hours": round(self.battery_life_hours, 2),
             "battery_life_days": round(self.battery_life_days, 2),
-            "duty_cycle_percent": round(self.duty_cycle_percent, 4),
-            "average_duty_cycle_percent": round(self.average_duty_cycle_percent, 4),
             "ranging_mode": self.ranging_mode,
             "uwb_frequency_hz": self.uwb_frequency_hz,
             "num_anchors": self.num_anchors,
             "device_name": self.device_name,
+            "imu_name": self.imu_name,
         }
 
 
@@ -190,14 +185,7 @@ class EnergyResult:
 
 class EnergyCalculator:
     """
-    Computes the energy / power consumption of a UWB tag.
-
-    The model is *duty-cycle based*:
-        1.  Compute energy per single TX / RX message.
-        2.  Sum per-ranging exchange based on protocol message count.
-        3.  Scale by frequency and number of anchors to get average power.
-        4.  Add idle and (optionally) IMU contributions.
-        5.  Derive battery life from total current draw.
+    Computes the energy / power consumption of a UWB tag using energy values.
     """
 
     def __init__(self, config: EnergyConfig | None = None):
@@ -205,7 +193,6 @@ class EnergyCalculator:
         
         # Cumulative tracking state
         self.cumulative_energy_uJ: float = 0.0
-        self.cumulative_uwb_active_time_s: float = 0.0
         self.total_simulation_time_s: float = 0.0
         self.step_count: int = 0
 
@@ -214,7 +201,6 @@ class EnergyCalculator:
     def reset_accumulator(self):
         """Reset the cumulative energy tracking state."""
         self.cumulative_energy_uJ = 0.0
-        self.cumulative_uwb_active_time_s = 0.0
         self.total_simulation_time_s = 0.0
         self.step_count = 0
         
@@ -229,10 +215,8 @@ class EnergyCalculator:
         # Power is in mW, dt is in s. Therefore dt * 1000 is in ms.
         # So mW * (dt * 1000) = uJ
         step_energy_uJ = result.total_power_mW * (dt * 1000.0)
-        step_uwb_active_time_s = (result.duty_cycle_percent / 100.0) * dt
         
         self.cumulative_energy_uJ += step_energy_uJ
-        self.cumulative_uwb_active_time_s += step_uwb_active_time_s
         self.total_simulation_time_s += dt
         self.step_count += 1
         
@@ -241,10 +225,8 @@ class EnergyCalculator:
         
         if self.total_simulation_time_s > 0:
             result.average_power_mW = (self.cumulative_energy_uJ / 1000.0) / self.total_simulation_time_s
-            result.average_duty_cycle_percent = (self.cumulative_uwb_active_time_s / self.total_simulation_time_s) * 100.0
         else:
             result.average_power_mW = result.total_power_mW
-            result.average_duty_cycle_percent = result.duty_cycle_percent
             
         result.average_current_mA = result.average_power_mW / self.config.voltage if self.config.voltage > 0 else 0.0
         
@@ -263,64 +245,45 @@ class EnergyCalculator:
         mode = cfg.get_ranging_mode()
 
         # --- Per-message energy (µJ) ---
-        # E(µJ) = V(V) × I(mA) × t(µs) × 1e-3
-        e_tx = cfg.voltage * cfg.tx_current_mA * cfg.tx_duration_us * 1e-3  # µJ
-        e_rx = cfg.voltage * cfg.rx_current_mA * cfg.rx_duration_us * 1e-3  # µJ
-        e_proc = cfg.voltage * cfg.processing_current_mA * cfg.processing_duration_us * 1e-3  # µJ
+        e_tx = cfg.energy_tx_uJ
+        e_rx = cfg.energy_rx_uJ
 
         # --- Messages per ranging ---
         tx_msgs, rx_msgs = _PROTOCOL_MSG_COUNT.get(mode, (1, 1))
         total_msgs = tx_msgs + rx_msgs
 
         # --- Energy per single ranging exchange (one anchor) ---
-        # TX + RX radio energy plus MCU processing energy per message
-        e_ranging = (e_tx * tx_msgs + e_rx * rx_msgs
-                     + e_proc * total_msgs)  # µJ
-
-        # --- Active time per ranging (seconds) ---
-        t_active_per_ranging_s = (
-            (cfg.tx_duration_us * tx_msgs +
-             cfg.rx_duration_us * rx_msgs +
-             cfg.processing_duration_us * total_msgs) * 1e-6
-        )
-
-        # --- Duty cycle ---
-        # Total active time per second = per-ranging active time × frequency × anchors
-        t_active_per_second = t_active_per_ranging_s * cfg.uwb_frequency_hz * cfg.num_anchors
-        duty_cycle = min(t_active_per_second, 1.0)  # cap at 100 %
+        e_ranging = (e_tx * tx_msgs + e_rx * rx_msgs)  # µJ
 
         uwb_active_power = 0.0
         if not cfg.uwb_disabled:
             # --- Average UWB active power (mW) ---
             #   = (energy per ranging per anchor, in µJ) × freq × anchors → µJ/s = µW → /1000 → mW
             uwb_active_power = (e_ranging * cfg.uwb_frequency_hz * cfg.num_anchors) * 1e-3  # mW
-        else:
-            duty_cycle = 0.0
 
-        # --- Idle / sleep power ---
-        if cfg.uwb_disabled:
-            tag_idle_power = cfg.voltage * cfg.sleep_current_mA  # mW
-        else:
-            idle_fraction = 1.0 - duty_cycle
-            tag_idle_power = cfg.voltage * cfg.idle_current_mA * idle_fraction  # mW
 
         # --- IMU power ---
         imu_power = 0.0
         if cfg.imu_enabled:
             # IMU is always on when enabled (continuous sampling)
-            imu_power = cfg.voltage * cfg.imu_active_current_mA  # mW
+            imu_power = (cfg.imu_energy_active_uJ_per_sample * cfg.imu_sample_rate_hz) * 1e-3  # mW
+        else:
+            imu_power = cfg.imu_power_sleep_mW  # mW
+        # --- Idle power (between rangings, radio standby) ---
+        tag_idle_power = cfg.power_idle_mW  # mW
+
+        # --- Deep sleep power ---
+        tag_sleep_power = cfg.power_sleep_mW  # mW
 
         # --- Totals ---
-        total_power = uwb_active_power + tag_idle_power + imu_power  # mW
+        total_power = uwb_active_power + tag_idle_power + tag_sleep_power + imu_power  # mW
         total_current = total_power / cfg.voltage if cfg.voltage > 0 else 0.0  # mA
 
         # --- Averages ---
         if self.total_simulation_time_s > 0:
             average_power_mW = (self.cumulative_energy_uJ / 1000.0) / self.total_simulation_time_s
-            average_duty_cycle = self.cumulative_uwb_active_time_s / self.total_simulation_time_s
         else:
             average_power_mW = total_power
-            average_duty_cycle = duty_cycle
             
         average_current_mA = average_power_mW / cfg.voltage if cfg.voltage > 0 else 0.0
 
@@ -334,13 +297,13 @@ class EnergyCalculator:
         return EnergyResult(
             energy_per_tx_message_uJ=e_tx,
             energy_per_rx_message_uJ=e_rx,
-            energy_per_processing_message_uJ=e_proc,
             energy_per_ranging_uJ=e_ranging,
             messages_per_ranging=total_msgs,
             tx_messages_per_ranging=tx_msgs,
             rx_messages_per_ranging=rx_msgs,
             uwb_active_power_mW=uwb_active_power,
             tag_idle_power_mW=tag_idle_power,
+            tag_sleep_power_mW=tag_sleep_power,
             imu_power_mW=imu_power,
             total_power_mW=total_power,
             total_current_mA=total_current,
@@ -349,12 +312,11 @@ class EnergyCalculator:
             total_energy_consumed_J=self.cumulative_energy_uJ * 1e-6,
             battery_life_hours=battery_life_h,
             battery_life_days=battery_life_d,
-            duty_cycle_percent=duty_cycle * 100.0,
-            average_duty_cycle_percent=average_duty_cycle * 100.0,
             ranging_mode=mode.value,
             uwb_frequency_hz=cfg.uwb_frequency_hz,
             num_anchors=cfg.num_anchors,
-            device_name=cfg.device_name,
+            device_name=cfg.uwb_profile_name,
+            imu_name=cfg.imu_profile_name,
         )
 
     # ── Convenience setters ───────────────────────────────────────────────

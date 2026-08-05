@@ -181,13 +181,13 @@ class EnergyWindow(QDialog):
         self.card_total_energy = MetricCard("Total Consumed", color="#4fc3f7")
         self.card_battery_life = MetricCard("Battery Life", color="#81c784")
         self.card_energy_ranging = MetricCard("Energy / Ranging", color="#ffb74d")
-        self.card_duty_cycle = MetricCard("Duty Cycle", color="#ce93d8")
+        self.card_avg_current = MetricCard("Avg Current", color="#ce93d8")
 
         cards_grid.addWidget(self.card_total_power, 0, 0)
         cards_grid.addWidget(self.card_total_energy, 0, 1)
         cards_grid.addWidget(self.card_battery_life, 0, 2)
         cards_grid.addWidget(self.card_energy_ranging, 1, 0)
-        cards_grid.addWidget(self.card_duty_cycle, 1, 1)
+        cards_grid.addWidget(self.card_avg_current, 1, 1)
 
         main_layout.addLayout(cards_grid)
 
@@ -219,6 +219,8 @@ class EnergyWindow(QDialog):
 
         self._detail_labels = {}
         detail_items = [
+            ("UWB Profile", "uwb_profile"),
+            ("IMU Profile", "imu_profile"),
             ("Ranging Mode", "mode"),
             ("UWB Frequency (Dynamic)", "freq"),
             ("Anchors (Dynamic)", "anchors"),
@@ -269,12 +271,14 @@ class EnergyWindow(QDialog):
             self.card_battery_life.set_value(f"{result.battery_life_days:.1f}", "days")
 
         self.card_energy_ranging.set_value(f"{result.energy_per_ranging_uJ:.2f}", "µJ")
-        self.card_duty_cycle.set_value(f"{result.average_duty_cycle_percent:.3f}", "%")
+        self.card_avg_current.set_value(f"{result.average_current_mA:.3f}", "mA")
 
         # Chart
         self.chart.update_chart(result)
 
         # Details
+        self._detail_labels["uwb_profile"].setText(result.device_name)
+        self._detail_labels["imu_profile"].setText(result.imu_name)
         self._detail_labels["mode"].setText(result.ranging_mode)
         self._detail_labels["freq"].setText(f"{result.uwb_frequency_hz:.2f} Hz")
         self._detail_labels["anchors"].setText(str(result.num_anchors))

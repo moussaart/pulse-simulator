@@ -37,7 +37,7 @@ class DutyCycleUwbImuFusionNaAekfAlgorithm(BaseLocalizationAlgorithm):
     BETA  = 0.5          # smoothing factor for Q adaptation
 
     # -- NLOS gating ------------------------------------------------------
-    LAMBDA_NLOS = 5.0    # inflation factor for r_i when anchor i is NLOS
+    LAMBDA_NLOS = 10.0    # inflation factor for r_i when anchor i is NLOS
 
     # -- IMU dead-reckoning parameters ------------------------------------
     OMEGA      = 0.7       # IMU-velocity blend weight in prediction
@@ -49,8 +49,8 @@ class DutyCycleUwbImuFusionNaAekfAlgorithm(BaseLocalizationAlgorithm):
     GT_STILLNESS_EPS       = 0.001  # m²/s² – ground-truth speed² gate
 
     # -- Duty-cycled UWB scheduling (Defaults, can be overridden dynamically) --
-    IMU_ONLY_DURATION = 2.0   # seconds
-    HYBRID_DURATION    = 2.0   # seconds
+    IMU_ONLY_DURATION = 3   # seconds
+    HYBRID_DURATION    = 1   # seconds
     DUTY_CYCLE_PERIOD  = IMU_ONLY_DURATION + HYBRID_DURATION
 
     n_ekf  = 6   # EKF dimension [x, y, vx, vy, ax, ay]

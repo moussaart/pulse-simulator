@@ -17,6 +17,7 @@ Run:
 import numpy as np
 import pandas as pd
 import time
+import json
 import matplotlib
 matplotlib.use("Agg")          # non-interactive backend for headless runs
 import matplotlib.pyplot as plt
@@ -171,25 +172,70 @@ WARMUP_STEPS  = 50          # enough to stabilise caches / JIT
 SEED_BASE     = 42
 OUTPUT_DIR    = Path("benchmark_output")
 
+# Checkpoint filenames (written incrementally so progress survives crashes)
+_CKPT_FULL    = OUTPUT_DIR / "_checkpoint_full.csv"
+_CKPT_LOS     = OUTPUT_DIR / "_checkpoint_los.csv"
+
 
 # ==============================================================================
-# Run benchmark
+# Checkpoint helpers
+# ==============================================================================
+def _load_checkpoint(ckpt_path: Path):
+    """
+    Load a checkpoint CSV and return (DataFrame, set-of-completed-keys).
+    Each key is a (obstacles, anchors, repetition) tuple.
+    """
+    if ckpt_path.exists() and ckpt_path.stat().st_size > 0:
+        df_ckpt = pd.read_csv(ckpt_path)
+        done = set(
+            zip(df_ckpt["Obstacles"].astype(int),
+                df_ckpt["Anchors"].astype(int),
+                df_ckpt["Repetition"].astype(int))
+        )
+        return df_ckpt, done
+    return pd.DataFrame(), set()
+
+
+def _append_to_checkpoint(ckpt_path: Path, row: dict):
+    """
+    Append a single result row to the checkpoint CSV.
+    Writes the header only if the file does not yet exist.
+    """
+    write_header = not ckpt_path.exists() or ckpt_path.stat().st_size == 0
+    pd.DataFrame([row]).to_csv(
+        ckpt_path, mode="a", header=write_header, index=False
+    )
+
+
+# ==============================================================================
+# Run benchmark (with checkpoint / resume support)
 # ==============================================================================
 def run_benchmark():
     OUTPUT_DIR.mkdir(exist_ok=True)
-    results = []
+
+    # ---- resume from checkpoint if one exists ----
+    df_prev, done_keys = _load_checkpoint(_CKPT_FULL)
 
     total = len(OBSTACLE_LIST) * len(ANCHOR_LIST) * REPETITIONS
-    current = 0
+    skipped  = len(done_keys)
+    current  = 0            # counts position in the full grid (incl. skipped)
+    new_runs = 0            # counts only freshly executed runs
 
     print(f"\n{'='*60}")
     print(f"  Starting Benchmark: {total} runs  ({NUM_STEPS} steps/run)")
+    if skipped:
+        print(f"  ► Resuming from checkpoint – {skipped} runs already done, "
+              f"{total - skipped} remaining")
     print(f"{'='*60}")
 
     for obstacles in OBSTACLE_LIST:
         for anchors in ANCHOR_LIST:
             for rep in range(REPETITIONS):
                 current += 1
+
+                # Skip runs that were already completed before the crash
+                if (obstacles, anchors, rep) in done_keys:
+                    continue
 
                 # Fixed seed per (obstacle, anchor, rep) → fully reproducible
                 seed = SEED_BASE + obstacles * 1000 + anchors * 100 + rep
@@ -211,24 +257,30 @@ def run_benchmark():
                     env.step()
                 elapsed = time.perf_counter() - t0
 
-                results.append({
+                row = {
                     "Obstacles":       obstacles,
                     "Anchors":         anchors,
                     "Repetition":      rep,
                     "ExecutionTime_s": elapsed,
                     "AvgTimePerStep_ms": (elapsed / NUM_STEPS) * 1000,
                     "StepsPerSecond":   NUM_STEPS / elapsed,
-                })
+                }
 
-                if current % 20 == 0 or current == total:
+                # Persist immediately so progress survives crashes
+                _append_to_checkpoint(_CKPT_FULL, row)
+                new_runs += 1
+
+                if new_runs % 20 == 0 or current == total:
                     print(f"  [{current:4d}/{total}]  Obs={obstacles:3d}  "
                           f"Anc={anchors:2d}  rep={rep:2d}  "
                           f"time={elapsed:.3f}s  "
                           f"({NUM_STEPS/elapsed:.0f} steps/s)")
 
-    df = pd.DataFrame(results)
+    # Merge checkpoint (previous + new) into final CSV
+    df = pd.read_csv(_CKPT_FULL)
     df.to_csv(OUTPUT_DIR / "benchmark_results.csv", index=False)
-    print(f"\nSaved raw results → {OUTPUT_DIR / 'benchmark_results.csv'}")
+    print(f"\nSaved raw results → {OUTPUT_DIR / 'benchmark_results.csv'}  "
+          f"({len(df)} rows, {new_runs} new)")
     return df
 
 
@@ -238,18 +290,30 @@ def run_benchmark():
 def run_los_only_benchmark():
     """Separate benchmark for LOS-checking only (no CIR / measurement)."""
     OUTPUT_DIR.mkdir(exist_ok=True)
-    results = []
 
-    total = len(OBSTACLE_LIST) * len(ANCHOR_LIST) * REPETITIONS
-    current = 0
+    # ---- resume from checkpoint if one exists ----
+    df_prev, done_keys = _load_checkpoint(_CKPT_LOS)
+
+    total   = len(OBSTACLE_LIST) * len(ANCHOR_LIST) * REPETITIONS
+    skipped = len(done_keys)
+    current  = 0
+    new_runs = 0
+
     print(f"\n{'='*60}")
     print(f"  LOS-Only Benchmark: {total} runs  ({NUM_STEPS} steps/run)")
+    if skipped:
+        print(f"  ► Resuming from checkpoint – {skipped} runs already done, "
+              f"{total - skipped} remaining")
     print(f"{'='*60}")
 
     for obstacles in OBSTACLE_LIST:
         for anchors in ANCHOR_LIST:
             for rep in range(REPETITIONS):
                 current += 1
+
+                if (obstacles, anchors, rep) in done_keys:
+                    continue
+
                 seed = SEED_BASE + obstacles * 1000 + anchors * 100 + rep
                 env  = SimulatorEnvironment(
                     num_anchors=anchors, num_obstacles=obstacles, seed=seed
@@ -264,22 +328,26 @@ def run_los_only_benchmark():
                     env.step_los_only()
                 elapsed = time.perf_counter() - t0
 
-                results.append({
+                row = {
                     "Obstacles":       obstacles,
                     "Anchors":         anchors,
                     "Repetition":      rep,
                     "ExecutionTime_s": elapsed,
                     "AvgTimePerStep_ms": (elapsed / NUM_STEPS) * 1000,
                     "StepsPerSecond":   NUM_STEPS / elapsed,
-                })
+                }
 
-                if current % 20 == 0 or current == total:
+                _append_to_checkpoint(_CKPT_LOS, row)
+                new_runs += 1
+
+                if new_runs % 20 == 0 or current == total:
                     print(f"  [{current:4d}/{total}]  Obs={obstacles:3d}  "
                           f"Anc={anchors:2d}  time={elapsed:.4f}s")
 
-    df = pd.DataFrame(results)
+    df = pd.read_csv(_CKPT_LOS)
     df.to_csv(OUTPUT_DIR / "benchmark_los_only.csv", index=False)
-    print(f"\nSaved LOS-only results → {OUTPUT_DIR / 'benchmark_los_only.csv'}")
+    print(f"\nSaved LOS-only results → {OUTPUT_DIR / 'benchmark_los_only.csv'}  "
+          f"({len(df)} rows, {new_runs} new)")
     return df
 
 
@@ -289,6 +357,12 @@ def run_los_only_benchmark():
 def analyze_and_plot(df, df_los=None):
     print("\nGenerating statistics and figures …")
 
+    # Remove outliers (e.g., from OS sleeping during benchmark)
+    Q1 = df.groupby(["Obstacles", "Anchors"])["ExecutionTime_s"].transform(lambda x: x.quantile(0.25))
+    Q3 = df.groupby(["Obstacles", "Anchors"])["ExecutionTime_s"].transform(lambda x: x.quantile(0.75))
+    IQR = Q3 - Q1
+    df = df[(df["ExecutionTime_s"] >= Q1 - 1.5 * IQR) & (df["ExecutionTime_s"] <= Q3 + 1.5 * IQR)].copy()
+    
     # ── 1. Statistics table ──────────────────────────────────────────
     stats_df = df.groupby(["Obstacles", "Anchors"]).agg(
         Mean_Time_s       =("ExecutionTime_s", "mean"),
@@ -297,61 +371,46 @@ def analyze_and_plot(df, df_los=None):
         Max_Time_s        =("ExecutionTime_s", "max"),
         Std_Time_s        =("ExecutionTime_s", "std"),
         Mean_Steps_Per_Sec=("StepsPerSecond",  "mean"),
+        Count             =("ExecutionTime_s", "count")
     ).reset_index()
 
     stats_df["CV_Percent"]  = (stats_df["Std_Time_s"] / stats_df["Mean_Time_s"]) * 100
-    stats_df["CI_95_Time_s"] = 1.96 * (stats_df["Std_Time_s"] / np.sqrt(REPETITIONS))
+    stats_df["CI_95_Time_s"] = 1.96 * (stats_df["Std_Time_s"] / np.sqrt(stats_df["Count"]))
 
     stats_df.to_csv(OUTPUT_DIR / "benchmark_statistics.csv", index=False)
     print(f"  Saved statistics → {OUTPUT_DIR / 'benchmark_statistics.csv'}")
 
     sns.set_theme(style="whitegrid", font="Times New Roman", font_scale=1.2)
 
-    # ── FIG 1: Execution time vs obstacles ───────────────────────────
-    fig, ax = plt.subplots(figsize=(8, 6))
-    for anc in sorted(df["Anchors"].unique()):
-        sub = stats_df[stats_df["Anchors"] == anc]
-        ax.errorbar(sub["Obstacles"], sub["Mean_Time_s"],
-                    yerr=sub["CI_95_Time_s"], label=f"{anc}",
-                    marker="o", capsize=4, linewidth=1.5)
-    ax.set_xlabel("Number of Obstacles")
-    ax.set_ylabel("Execution Time for 1000 Steps (s)")
-    ax.set_title("Execution Time vs Environment Complexity")
-    ax.legend(title="Anchors", ncol=2)
-    ax.grid(True, linestyle="--", alpha=0.5)
-    fig.savefig(OUTPUT_DIR / "fig1_time_vs_obstacles.pdf")
-    fig.savefig(OUTPUT_DIR / "fig1_time_vs_obstacles.png", dpi=300)
-    plt.close(fig)
-
-    # ── FIG 2: Throughput vs obstacles ────────────────────────────────
-    fig, ax = plt.subplots(figsize=(8, 6))
-    for anc in sorted(df["Anchors"].unique()):
-        sub = stats_df[stats_df["Anchors"] == anc]
-        ax.plot(sub["Obstacles"], sub["Mean_Steps_Per_Sec"],
-                marker="s", label=f"{anc}", linewidth=1.5)
-    ax.set_xlabel("Number of Obstacles")
-    ax.set_ylabel("Throughput (Steps / Second)")
-    ax.set_title("Simulator Throughput vs Environment Complexity")
-    ax.legend(title="Anchors", ncol=2)
-    ax.grid(True, linestyle="--", alpha=0.5)
-    fig.savefig(OUTPUT_DIR / "fig2_throughput_vs_obstacles.pdf")
-    fig.savefig(OUTPUT_DIR / "fig2_throughput_vs_obstacles.png", dpi=300)
-    plt.close(fig)
-
-    # ── FIG 3: Execution time vs anchors ─────────────────────────────
+    # ── FIG 1: Execution time vs anchors ───────────────────────────
     fig, ax = plt.subplots(figsize=(8, 6))
     for obs in sorted(df["Obstacles"].unique()):
         sub = stats_df[stats_df["Obstacles"] == obs]
         ax.errorbar(sub["Anchors"], sub["Mean_Time_s"],
                     yerr=sub["CI_95_Time_s"], label=f"{obs}",
-                    marker="^", capsize=4, linewidth=1.5)
+                    marker="o", capsize=4, linewidth=1.5)
     ax.set_xlabel("Number of Anchors")
     ax.set_ylabel("Execution Time for 1000 Steps (s)")
     ax.set_title("Execution Time vs Number of Anchors")
     ax.legend(title="Obstacles", ncol=2)
     ax.grid(True, linestyle="--", alpha=0.5)
-    fig.savefig(OUTPUT_DIR / "fig3_time_vs_anchors.pdf")
-    fig.savefig(OUTPUT_DIR / "fig3_time_vs_anchors.png", dpi=300)
+    fig.savefig(OUTPUT_DIR / "fig1_time_vs_anchors.pdf")
+    fig.savefig(OUTPUT_DIR / "fig1_time_vs_anchors.png", dpi=300)
+    plt.close(fig)
+
+    # ── FIG 2: Throughput vs anchors ────────────────────────────────
+    fig, ax = plt.subplots(figsize=(8, 6))
+    for obs in sorted(df["Obstacles"].unique()):
+        sub = stats_df[stats_df["Obstacles"] == obs]
+        ax.plot(sub["Anchors"], sub["Mean_Steps_Per_Sec"],
+                marker="s", label=f"{obs}", linewidth=1.5)
+    ax.set_xlabel("Number of Anchors")
+    ax.set_ylabel("Throughput (Steps / Second)")
+    ax.set_title("Simulator Throughput vs Number of Anchors")
+    ax.legend(title="Obstacles", ncol=2)
+    ax.grid(True, linestyle="--", alpha=0.5)
+    fig.savefig(OUTPUT_DIR / "fig2_throughput_vs_anchors.pdf")
+    fig.savefig(OUTPUT_DIR / "fig2_throughput_vs_anchors.png", dpi=300)
     plt.close(fig)
 
     # ── FIG 4: Heatmap of execution time ─────────────────────────────
@@ -384,10 +443,10 @@ def analyze_and_plot(df, df_los=None):
 
     # ── FIG 6: Boxplots (variability) ────────────────────────────────
     fig, ax = plt.subplots(figsize=(10, 6))
-    subset = df[df["Anchors"].isin([4, 8, 12])]
-    sns.boxplot(data=subset, x="Obstacles", y="AvgTimePerStep_ms",
-                hue="Anchors", palette="Set2", ax=ax)
-    ax.set_xlabel("Number of Obstacles")
+    subset = df[df["Obstacles"].isin([0, 50, 200])]
+    sns.boxplot(data=subset, x="Anchors", y="AvgTimePerStep_ms",
+                hue="Obstacles", palette="Set2", ax=ax)
+    ax.set_xlabel("Number of Anchors")
     ax.set_ylabel("Average Time per Step (ms)")
     ax.set_title("Variability in Time Per Step")
     ax.grid(True, axis="y", linestyle="--", alpha=0.5)
@@ -397,22 +456,28 @@ def analyze_and_plot(df, df_los=None):
 
     # ── FIG 7 (optional): LOS-only scaling ───────────────────────────
     if df_los is not None and not df_los.empty:
+        Q1_los = df_los.groupby(["Obstacles", "Anchors"])["ExecutionTime_s"].transform(lambda x: x.quantile(0.25))
+        Q3_los = df_los.groupby(["Obstacles", "Anchors"])["ExecutionTime_s"].transform(lambda x: x.quantile(0.75))
+        IQR_los = Q3_los - Q1_los
+        df_los = df_los[(df_los["ExecutionTime_s"] >= Q1_los - 1.5 * IQR_los) & (df_los["ExecutionTime_s"] <= Q3_los + 1.5 * IQR_los)].copy()
+        
         los_stats = df_los.groupby(["Obstacles", "Anchors"]).agg(
             Mean_Time_s=("ExecutionTime_s", "mean"),
             Std_Time_s =("ExecutionTime_s", "std"),
+            Count      =("ExecutionTime_s", "count")
         ).reset_index()
-        los_stats["CI_95"] = 1.96 * (los_stats["Std_Time_s"] / np.sqrt(REPETITIONS))
+        los_stats["CI_95"] = 1.96 * (los_stats["Std_Time_s"] / np.sqrt(los_stats["Count"]))
 
         fig, ax = plt.subplots(figsize=(8, 6))
-        for anc in sorted(df_los["Anchors"].unique()):
-            sub = los_stats[los_stats["Anchors"] == anc]
-            ax.errorbar(sub["Obstacles"], sub["Mean_Time_s"],
-                        yerr=sub["CI_95"], label=f"{anc}",
+        for obs in sorted(df_los["Obstacles"].unique()):
+            sub = los_stats[los_stats["Obstacles"] == obs]
+            ax.errorbar(sub["Anchors"], sub["Mean_Time_s"],
+                        yerr=sub["CI_95"], label=f"{obs}",
                         marker="D", capsize=4, linewidth=1.5)
-        ax.set_xlabel("Number of Obstacles")
+        ax.set_xlabel("Number of Anchors")
         ax.set_ylabel("LOS-Check Time for 1000 Steps (s)")
         ax.set_title("LOS Check Scaling (No Measurement Overhead)")
-        ax.legend(title="Anchors", ncol=2)
+        ax.legend(title="Obstacles", ncol=2)
         ax.grid(True, linestyle="--", alpha=0.5)
         fig.savefig(OUTPUT_DIR / "fig7_los_only_scaling.pdf")
         fig.savefig(OUTPUT_DIR / "fig7_los_only_scaling.png", dpi=300)
@@ -484,13 +549,12 @@ millions of training samples per hour, validating the simulator as a
 viable environment for real-time RL training.
 
 Figures:
-  Fig. 1 — Execution time vs N_obs
-  Fig. 2 — Throughput vs N_obs
-  Fig. 3 — Execution time vs N_anc
+  Fig. 1 — Execution time vs N_anc
+  Fig. 2 — Throughput vs N_anc
   Fig. 4 — Heatmap (N_anc × N_obs)
   Fig. 5 — 3-D throughput surface
   Fig. 6 — Box-plots (timing variability)
-  Fig. 7 — LOS-only scaling (obstacle complexity)
+  Fig. 7 — LOS-only scaling vs N_anc
 
 Table:
   benchmark_statistics.csv (mean, median, min, max, std, CV, 95% CI)
@@ -513,14 +577,20 @@ if __name__ == "__main__":
     print("  PULSE Benchmark Framework")
     print("=" * 60)
 
-    # Full pipeline benchmark
+    # Full pipeline benchmark (resumes from checkpoint if available)
     df_full = run_benchmark()
 
-    # LOS-only benchmark (isolates obstacle scaling)
+    # LOS-only benchmark (resumes from checkpoint if available)
     df_los = run_los_only_benchmark()
 
     # Analysis & plots
     analyze_and_plot(df_full, df_los)
+
+    # Clean up checkpoint files now that everything completed successfully
+    for ckpt in (_CKPT_FULL, _CKPT_LOS):
+        if ckpt.exists():
+            ckpt.unlink()
+            print(f"  Removed checkpoint: {ckpt.name}")
 
     elapsed_total = time.perf_counter() - t_total
     print(f"\nTotal benchmark time: {elapsed_total/60:.1f} min")

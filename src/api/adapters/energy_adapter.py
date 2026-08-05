@@ -45,21 +45,19 @@ class EnergyDataAdapter:
         """
         cfg = self._calculator.config
         return {
-            "voltage": cfg.voltage,
-            "tx_current_mA": cfg.tx_current_mA,
-            "rx_current_mA": cfg.rx_current_mA,
-            "idle_current_mA": cfg.idle_current_mA,
-            "sleep_current_mA": cfg.sleep_current_mA,
-            "tx_duration_us": cfg.tx_duration_us,
-            "rx_duration_us": cfg.rx_duration_us,
-            "processing_duration_us": cfg.processing_duration_us,
+            "energy_tx_uJ": cfg.energy_tx_uJ,
+            "energy_rx_uJ": cfg.energy_rx_uJ,
+            "energy_sleep_uJ_per_s": cfg.energy_sleep_uJ_per_s,
             "ranging_mode": cfg.ranging_mode,
             "uwb_frequency_hz": cfg.uwb_frequency_hz,
             "num_anchors": cfg.num_anchors,
             "imu_enabled": cfg.imu_enabled,
-            "imu_active_current_mA": cfg.imu_active_current_mA,
+            "imu_energy_active_uJ_per_sample": cfg.imu_energy_active_uJ_per_sample,
+            "imu_energy_sleep_uJ_per_s": cfg.imu_energy_sleep_uJ_per_s,
             "imu_sample_rate_hz": cfg.imu_sample_rate_hz,
             "battery_capacity_mAh": cfg.battery_capacity_mAh,
+            "uwb_profile_name": cfg.uwb_profile_name,
+            "imu_profile_name": cfg.imu_profile_name,
         }
 
     def to_dict(self) -> Dict[str, Any]:

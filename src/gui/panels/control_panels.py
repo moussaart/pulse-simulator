@@ -692,6 +692,9 @@ class ControlPanelFactory:
     @staticmethod
     def create_energy_panel():
         """Create UWB tag energy consumption configuration panel"""
+        from PyQt5.QtWidgets import QPushButton, QDialog, QFormLayout, QLineEdit, QDialogButtonBox, QMessageBox
+        from src.core.uwb.hardware_profiles import DeviceProfileManager, UWBProfile, IMUProfile
+
         energy_group = ModernGroupBox("⚡ Energy Consumption")
 
         main_layout = QVBoxLayout()
@@ -702,53 +705,184 @@ class ControlPanelFactory:
         config_grid = QGridLayout()
         config_grid.setSpacing(6)
 
-        # Hardware Profile
-        config_grid.addWidget(QLabel("Device:"), 0, 0)
-        device_combo = QComboBox()
-        from src.core.uwb.hardware_profiles import HardwareProfileManager
-        profiles = HardwareProfileManager.get_all_profile_names()
-        device_combo.addItems(profiles)
-        default_index = device_combo.findText("Custom / DW1000 Default")
+        def show_add_uwb_dialog():
+            dlg = QDialog()
+            dlg.setWindowTitle("Add UWB Profile")
+            layout = QFormLayout(dlg)
+            name_edit = QLineEdit()
+            tx_edit = QDoubleSpinBox()
+            tx_edit.setRange(0, 1000000)
+            tx_edit.setDecimals(4)
+            rx_edit = QDoubleSpinBox()
+            rx_edit.setRange(0, 1000000)
+            rx_edit.setDecimals(4)
+            idle_edit = QDoubleSpinBox()
+            idle_edit.setRange(0, 1000000)
+            idle_edit.setDecimals(4)
+            sleep_edit = QDoubleSpinBox()
+            sleep_edit.setRange(0, 1000000)
+            sleep_edit.setDecimals(6)
+            notes_edit = QLineEdit()
+            
+            layout.addRow("Profile Name:", name_edit)
+            layout.addRow("Energy TX (µJ):", tx_edit)
+            layout.addRow("Energy RX (µJ):", rx_edit)
+            layout.addRow("Power Idle (mW):", idle_edit)
+            layout.addRow("Power Sleep (mW):", sleep_edit)
+            layout.addRow("Notes:", notes_edit)
+            
+            buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+            buttons.accepted.connect(dlg.accept)
+            buttons.rejected.connect(dlg.reject)
+            layout.addRow(buttons)
+            
+            if dlg.exec_() == QDialog.Accepted and name_edit.text():
+                profile = UWBProfile(name_edit.text(), tx_edit.value(), rx_edit.value(), idle_edit.value(), sleep_edit.value(), notes_edit.text())
+                DeviceProfileManager.add_uwb_profile(profile)
+                uwb_combo.clear()
+                uwb_combo.addItems(DeviceProfileManager.get_all_uwb_names())
+                uwb_combo.setCurrentText(profile.name)
+
+        def delete_uwb_profile():
+            name = uwb_combo.currentText()
+            if name:
+                reply = QMessageBox.question(None, 'Delete Profile', f"Delete UWB profile '{name}'?", QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+                if reply == QMessageBox.Yes:
+                    DeviceProfileManager.delete_uwb_profile(name)
+                    uwb_combo.clear()
+                    uwb_combo.addItems(DeviceProfileManager.get_all_uwb_names())
+
+        def show_add_imu_dialog():
+            dlg = QDialog()
+            dlg.setWindowTitle("Add IMU Profile")
+            layout = QFormLayout(dlg)
+            name_edit = QLineEdit()
+            active_edit = QDoubleSpinBox()
+            active_edit.setRange(0, 1000000)
+            active_edit.setDecimals(6)
+            sleep_edit = QDoubleSpinBox()
+            sleep_edit.setRange(0, 1000000)
+            sleep_edit.setDecimals(6)
+            sample_rate_edit = QDoubleSpinBox()
+            sample_rate_edit.setRange(1, 10000)
+            sample_rate_edit.setValue(100.0)
+            sample_rate_edit.setDecimals(1)
+            notes_edit = QLineEdit()
+            
+            layout.addRow("Profile Name:", name_edit)
+            layout.addRow("Energy Active (µJ/sample):", active_edit)
+            layout.addRow("Power Sleep (mW):", sleep_edit)
+            layout.addRow("Sample Rate (Hz):", sample_rate_edit)
+            layout.addRow("Notes:", notes_edit)
+            
+            buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+            buttons.accepted.connect(dlg.accept)
+            buttons.rejected.connect(dlg.reject)
+            layout.addRow(buttons)
+            
+            if dlg.exec_() == QDialog.Accepted and name_edit.text():
+                profile = IMUProfile(name_edit.text(), active_edit.value(), sleep_edit.value(), sample_rate_edit.value(), notes_edit.text())
+                DeviceProfileManager.add_imu_profile(profile)
+                imu_combo.clear()
+                imu_combo.addItems(DeviceProfileManager.get_all_imu_names())
+                imu_combo.setCurrentText(profile.name)
+
+        def delete_imu_profile():
+            name = imu_combo.currentText()
+            if name:
+                reply = QMessageBox.question(None, 'Delete Profile', f"Delete IMU profile '{name}'?", QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+                if reply == QMessageBox.Yes:
+                    DeviceProfileManager.delete_imu_profile(name)
+                    imu_combo.clear()
+                    imu_combo.addItems(DeviceProfileManager.get_all_imu_names())
+
+        # UWB Hardware Profile
+        config_grid.addWidget(QLabel("UWB Device:"), 0, 0)
+        
+        uwb_row = QHBoxLayout()
+        uwb_combo = QComboBox()
+        uwb_combo.addItems(DeviceProfileManager.get_all_uwb_names())
+        default_index = uwb_combo.findText("DW1000")
         if default_index >= 0:
-            device_combo.setCurrentIndex(default_index)
-        device_combo.setToolTip("Select UWB Hardware Profile")
-        config_grid.addWidget(device_combo, 0, 1)
+            uwb_combo.setCurrentIndex(default_index)
+        uwb_combo.setToolTip("Select UWB Hardware Profile")
+        uwb_row.addWidget(uwb_combo, 1)
+        
+        add_uwb_btn = QPushButton("➕")
+        add_uwb_btn.setFixedSize(24, 24)
+        add_uwb_btn.clicked.connect(show_add_uwb_dialog)
+        add_uwb_btn.setToolTip("Add UWB Profile")
+        uwb_row.addWidget(add_uwb_btn)
+        
+        del_uwb_btn = QPushButton("🗑")
+        del_uwb_btn.setFixedSize(24, 24)
+        del_uwb_btn.clicked.connect(delete_uwb_profile)
+        del_uwb_btn.setToolTip("Delete UWB Profile")
+        uwb_row.addWidget(del_uwb_btn)
+        
+        config_grid.addLayout(uwb_row, 0, 1)
+
+        # IMU Hardware Profile
+        config_grid.addWidget(QLabel("IMU Device:"), 1, 0)
+        
+        imu_row = QHBoxLayout()
+        imu_combo = QComboBox()
+        imu_combo.addItems(DeviceProfileManager.get_all_imu_names())
+        default_imu_index = imu_combo.findText("Generic MEMS IMU")
+        if default_imu_index >= 0:
+            imu_combo.setCurrentIndex(default_imu_index)
+        imu_combo.setToolTip("Select IMU Hardware Profile")
+        imu_row.addWidget(imu_combo, 1)
+        
+        add_imu_btn = QPushButton("➕")
+        add_imu_btn.setFixedSize(24, 24)
+        add_imu_btn.clicked.connect(show_add_imu_dialog)
+        add_imu_btn.setToolTip("Add IMU Profile")
+        imu_row.addWidget(add_imu_btn)
+        
+        del_imu_btn = QPushButton("🗑")
+        del_imu_btn.setFixedSize(24, 24)
+        del_imu_btn.clicked.connect(delete_imu_profile)
+        del_imu_btn.setToolTip("Delete IMU Profile")
+        imu_row.addWidget(del_imu_btn)
+        
+        config_grid.addLayout(imu_row, 1, 1)
 
         # Ranging mode
-        config_grid.addWidget(QLabel("Ranging Mode:"), 1, 0)
+        config_grid.addWidget(QLabel("Ranging Mode:"), 2, 0)
         ranging_mode_combo = QComboBox()
         ranging_mode_combo.addItems(["SS-TWR", "DS-TWR"])
         ranging_mode_combo.setToolTip("Two-Way Ranging protocol")
-        config_grid.addWidget(ranging_mode_combo, 1, 1)
+        config_grid.addWidget(ranging_mode_combo, 2, 1)
 
         # UWB frequency (Dynamic)
-        config_grid.addWidget(QLabel("UWB Freq (Hz):"), 2, 0)
+        config_grid.addWidget(QLabel("UWB Freq (Hz):"), 3, 0)
         uwb_freq_spin = QDoubleSpinBox()
         uwb_freq_spin.setRange(0.0, 1000.0)
         uwb_freq_spin.setValue(0.0)
         uwb_freq_spin.setSuffix(" Hz")
         uwb_freq_spin.setToolTip("Ranging rate (dynamically set by dt)")
         uwb_freq_spin.setEnabled(False) # Read-only, driven by simulation
-        config_grid.addWidget(uwb_freq_spin, 2, 1)
+        config_grid.addWidget(uwb_freq_spin, 3, 1)
 
         # Number of anchors (Dynamic)
-        config_grid.addWidget(QLabel("Anchors:"), 3, 0)
+        config_grid.addWidget(QLabel("Anchors:"), 4, 0)
         num_anchors_spin = QSpinBox()
         num_anchors_spin.setRange(0, 16)
         num_anchors_spin.setValue(0)
         num_anchors_spin.setToolTip("Number of anchors (dynamically set by scene)")
         num_anchors_spin.setEnabled(False) # Read-only, driven by simulation
-        config_grid.addWidget(num_anchors_spin, 3, 1)
+        config_grid.addWidget(num_anchors_spin, 4, 1)
 
         # IMU enabled (Dynamic)
         imu_enabled_check = QCheckBox("IMU Power")
         imu_enabled_check.setChecked(False)
         imu_enabled_check.setToolTip("IMU power (dynamically set by algorithm)")
         imu_enabled_check.setEnabled(False) # Read-only, driven by simulation
-        config_grid.addWidget(imu_enabled_check, 4, 0, 1, 2)
+        config_grid.addWidget(imu_enabled_check, 5, 0, 1, 2)
 
         # Battery capacity (Manual)
-        config_grid.addWidget(QLabel("Battery (mAh):"), 5, 0)
+        config_grid.addWidget(QLabel("Battery (mAh):"), 6, 0)
         battery_spin = QDoubleSpinBox()
         battery_spin.setRange(1.0, 50000.0)
         battery_spin.setValue(225.0)
@@ -756,7 +890,7 @@ class ControlPanelFactory:
         battery_spin.setDecimals(0)
         battery_spin.setSuffix(" mAh")
         battery_spin.setToolTip("Battery capacity for life estimation")
-        config_grid.addWidget(battery_spin, 5, 1)
+        config_grid.addWidget(battery_spin, 6, 1)
 
         main_layout.addLayout(config_grid)
 
@@ -804,7 +938,8 @@ class ControlPanelFactory:
         energy_group.setLayout(main_layout)
 
         widgets = {
-            'device_combo': device_combo,
+            'device_combo': uwb_combo,
+            'imu_combo': imu_combo,
             'ranging_mode_combo': ranging_mode_combo,
             'uwb_freq_spin': uwb_freq_spin,
             'num_anchors_spin': num_anchors_spin,

@@ -380,17 +380,17 @@
             }
         }
     ],
-    "algorithm": "Adaptive Extended Kalman Filter",
+    "algorithm": "Duty-Cycled UWB-IMU NA-AEKF v2",
     "algorithm_config": {
-        "name": "Adaptive Extended Kalman Filter",
-        "uses_imu": false
+        "name": "Duty-Cycled UWB-IMU NA-AEKF v2",
+        "uses_imu": true
     },
     "tag_config": {
         "imu_data_on": true
     },
     "movement_pattern": "Custom:long_test",
-    "movement_speed": 6.0,
-    "timestep_ms": 17,
+    "movement_speed": 2.0,
+    "timestep_ms": 10,
     "uwb_config": {
         "channel": "5",
         "environment": "Residential",

@@ -558,7 +558,8 @@ class LocalizationApp(QMainWindow):
 
             # Wire up auto-recalculation on any parameter change
             def _recalculate():
-                self.energy_calculator.config.apply_hardware_profile(energy_widgets['device_combo'].currentText())
+                self.energy_calculator.config.apply_uwb_profile(energy_widgets['device_combo'].currentText())
+                self.energy_calculator.config.apply_imu_profile(energy_widgets['imu_combo'].currentText())
                 self.energy_calculator.set_ranging_mode(energy_widgets['ranging_mode_combo'].currentText())
                 self.energy_calculator.set_frequency(energy_widgets['uwb_freq_spin'].value())
                 self.energy_calculator.set_num_anchors(energy_widgets['num_anchors_spin'].value())
@@ -581,6 +582,7 @@ class LocalizationApp(QMainWindow):
                     self.energy_window.refresh()
 
             energy_widgets['device_combo'].currentTextChanged.connect(lambda: _recalculate())
+            energy_widgets['imu_combo'].currentTextChanged.connect(lambda: _recalculate())
             energy_widgets['ranging_mode_combo'].currentTextChanged.connect(lambda: _recalculate())
             energy_widgets['uwb_freq_spin'].valueChanged.connect(lambda: _recalculate())
             energy_widgets['num_anchors_spin'].valueChanged.connect(lambda: _recalculate())
@@ -1140,32 +1142,39 @@ class LocalizationApp(QMainWindow):
             
         result = self.energy_calculator.calculate()
         
-        # Update main panel inputs (which are now read-only displays)
-        self.energy_widgets['uwb_freq_spin'].setValue(self.energy_calculator.config.uwb_frequency_hz)
-        self.energy_widgets['num_anchors_spin'].setValue(self.energy_calculator.config.num_anchors)
-        
-        # Check if IMU is active (either enabled or uwb is disabled/IMU-only)
-        imu_active = self.energy_calculator.config.imu_enabled or self.energy_calculator.config.uwb_disabled
-        self.energy_widgets['imu_enabled_check'].setChecked(imu_active)
-        
-        # Update the main panel results labels
-        self.energy_widgets['energy_msg_label'].setText(f"{result.energy_per_tx_message_uJ:.2f} µJ")
-        self.energy_widgets['energy_ranging_label'].setText(f"{result.energy_per_ranging_uJ:.2f} µJ")
-        self.energy_widgets['total_power_label'].setText(f"{result.average_power_mW:.2f} mW")
-        self.energy_widgets['total_energy_label'].setText(f"{result.total_energy_consumed_J:.4f} J")
-        
-        # Battery life string
-        if result.battery_life_days < 1:
-            batt_str = f"{result.battery_life_hours:.1f} d"
-        elif result.battery_life_days > 365:
-            batt_str = f"{(result.battery_life_days / 365):.1f} y"
-        else:
-            batt_str = f"{result.battery_life_days:.1f} d"
-        self.energy_widgets['battery_life_label'].setText(batt_str)
+        try:
+            # Update main panel inputs (which are now read-only displays)
+            self.energy_widgets['uwb_freq_spin'].setValue(self.energy_calculator.config.uwb_frequency_hz)
+            self.energy_widgets['num_anchors_spin'].setValue(self.energy_calculator.config.num_anchors)
+            
+            # Check if IMU is active (either enabled or uwb is disabled/IMU-only)
+            imu_active = self.energy_calculator.config.imu_enabled or self.energy_calculator.config.uwb_disabled
+            self.energy_widgets['imu_enabled_check'].setChecked(imu_active)
+            
+            # Update the main panel results labels
+            self.energy_widgets['energy_msg_label'].setText(f"{result.energy_per_tx_message_uJ:.2f} µJ")
+            self.energy_widgets['energy_ranging_label'].setText(f"{result.energy_per_ranging_uJ:.2f} µJ")
+            self.energy_widgets['total_power_label'].setText(f"{result.average_power_mW:.2f} mW")
+            self.energy_widgets['total_energy_label'].setText(f"{result.total_energy_consumed_J:.4f} J")
+            
+            # Battery life string
+            if result.battery_life_days < 1:
+                batt_str = f"{result.battery_life_hours:.1f} d"
+            elif result.battery_life_days > 365:
+                batt_str = f"{(result.battery_life_days / 365):.1f} y"
+            else:
+                batt_str = f"{result.battery_life_days:.1f} d"
+            self.energy_widgets['battery_life_label'].setText(batt_str)
+        except RuntimeError:
+            # The widgets were destroyed (e.g. during a UI reset), skip updating
+            pass
         
         # If open, refresh the detailed standalone window
         if self.energy_window is not None and self.energy_window.isVisible():
-            self.energy_window.refresh()
+            try:
+                self.energy_window.refresh()
+            except RuntimeError:
+                pass
     
     def toggle_ai_data_collection(self):
         """Toggle the independent AI Training Window"""
