@@ -1,0 +1,24 @@
+{
+  "mode": "no_render",
+  "steps": 0,
+  "wall_s": 180.01185520000035,
+  "micro_steps_per_s": 0.0,
+  "scenario_hash": "8dc2e7a55af2fdce55e8860aa241065df51b0cf2ff65d341af40090d95f4a113",
+  "seed": 42,
+  "initial": {
+    "rss_bytes": 173105152,
+    "cpu_percent": 97.7,
+    "processes": 1,
+    "gpu": null
+  },
+  "final": {
+    "rss_bytes": 179216384,
+    "cpu_percent": 94.1,
+    "processes": 1,
+    "gpu": null
+  },
+  "failures": [
+    "timed out"
+  ],
+  "note": "Original GUI/TCP loop; UWB acquired on every micro-step; Qt offscreen"
+}

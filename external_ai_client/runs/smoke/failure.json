@@ -1,0 +1,14 @@
+{
+  "counters": {
+    "decisions": 0,
+    "episodes": 0,
+    "updates": 0
+  },
+  "error_type": "OSError",
+  "last_healthy_checkpoint_decisions": 0,
+  "message": "[WinError 1114] Une routine d\u2019initialisation d\u2019une biblioth\u00e8que de liens dynamiques (DLL) a \u00e9chou\u00e9. Error loading \"C:\\Users\\tmoussa\\Desktop\\Irisa Job\\PULSE project\\external_ai_client\\.venv\\Lib\\site-packages\\torch\\lib\\c10.dll\" or one of its dependencies.",
+  "recent_errors": [],
+  "recent_losses": [],
+  "recent_rewards": [],
+  "traceback": "Traceback (most recent call last):\n  File \"C:\\Users\\tmoussa\\Desktop\\Irisa Job\\PULSE project\\external_ai_client\\pulse_rl\\trainer.py\", line 280, in run\n    self._initialize(observations, reset_infos, resume_path)\n  File \"C:\\Users\\tmoussa\\Desktop\\Irisa Job\\PULSE project\\external_ai_client\\pulse_rl\\trainer.py\", line 193, in _initialize\n    torch = require_torch()\n            ^^^^^^^^^^^^^^^\n  File \"C:\\Users\\tmoussa\\Desktop\\Irisa Job\\PULSE project\\external_ai_client\\pulse_rl\\model.py\", line 9, in require_torch\n    import torch\n  File \"C:\\Users\\tmoussa\\Desktop\\Irisa Job\\PULSE project\\external_ai_client\\.venv\\Lib\\site-packages\\torch\\__init__.py\", line 309, in <module>\n    _load_dll_libraries()\n  File \"C:\\Users\\tmoussa\\Desktop\\Irisa Job\\PULSE project\\external_ai_client\\.venv\\Lib\\site-packages\\torch\\__init__.py\", line 292, in _load_dll_libraries\n    raise err\nOSError: [WinError 1114] Une routine d\u2019initialisation d\u2019une biblioth\u00e8que de liens dynamiques (DLL) a \u00e9chou\u00e9. Error loading \"C:\\Users\\tmoussa\\Desktop\\Irisa Job\\PULSE project\\external_ai_client\\.venv\\Lib\\site-packages\\torch\\lib\\c10.dll\" or one of its dependencies.\n"
+}
