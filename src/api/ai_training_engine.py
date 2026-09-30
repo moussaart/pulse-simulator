@@ -26,6 +26,7 @@ Deliberate differences from the old ``AITrainingWindow`` loop:
 from __future__ import annotations
 
 import inspect
+import time
 from collections import deque
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Sequence, Tuple
@@ -45,10 +46,25 @@ from src.core.uwb.uwb_devices import Position, Tag
 __all__ = [
     "AITrainingEngine",
     "MeasurementError",
+    "MOVEMENT_PATTERNS",
     "TrainingAgentSim",
     "TrainingConfig",
     "UnknownAlgorithmError",
+    "validate_movement_pattern",
 ]
+
+#: Every pattern ``MotionController.update_tag_position`` implements, mirrored
+#: from the main window's pattern combo box. Anything else silently leaves the tag
+#: at its current position, which looks like a frozen simulation rather than an
+#: error, so the engine rejects it up front instead.
+MOVEMENT_PATTERNS = (
+    "Circular",
+    "Figure 8",
+    "Square",
+    "Random Walk",
+    "Fixed Point",
+    "Foot Mounted",
+)
 
 
 class UnknownAlgorithmError(LookupError):
@@ -58,6 +74,33 @@ class UnknownAlgorithmError(LookupError):
     RL agent could believe it was training a duty-cycled filter while a different
     one actually ran.
     """
+
+
+class UnknownMovementPatternError(LookupError):
+    """Raised when a movement pattern ``MotionController`` does not implement.
+
+    ``update_tag_position`` has no ``else`` branch: an unrecognised pattern leaves
+    the tag exactly where it was. Training then runs for hours producing a flat
+    trajectory that looks like a physics bug rather than a typo.
+    """
+
+
+def validate_movement_pattern(pattern: str) -> str:
+    """Return ``pattern`` if ``MotionController`` can execute it, else raise.
+
+    ``Custom:<trajectory>`` is forwarded by name, so only the prefix is checked.
+    """
+    name = str(pattern)
+    if name.startswith("Custom:"):
+        if not name[len("Custom:"):].strip():
+            raise UnknownMovementPatternError("Custom movement pattern needs a trajectory name")
+        return name
+    if name not in MOVEMENT_PATTERNS:
+        raise UnknownMovementPatternError(
+            f"unknown movement pattern {name!r}; "
+            f"expected one of {', '.join(MOVEMENT_PATTERNS)} or 'Custom:<trajectory>'"
+        )
+    return name
 
 
 def _method_uses_imu(method: Any) -> bool:
@@ -80,7 +123,7 @@ class TrainingConfig:
 
     algorithm: str = "Duty-Cycled UWB-IMU NA-AEKF"
     dt: float = 0.005
-    movement_pattern: str = "random"
+    movement_pattern: str = "Random Walk"
     movement_speed: float = 1.0
     measurement_source: str = "both"
     num_agents: int = 1
@@ -90,6 +133,15 @@ class TrainingConfig:
     metrics_window: int = 2000
     allow_gpu: bool = True
     extra: Dict[str, Any] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        validate_movement_pattern(self.movement_pattern)
+        if float(self.dt) <= 0.0:
+            raise ValueError(f"dt must be positive, got {self.dt!r}")
+        if int(self.num_agents) < 1:
+            raise ValueError(f"num_agents must be >= 1, got {self.num_agents!r}")
+        if int(self.metrics_window) < 1:
+            raise ValueError(f"metrics_window must be >= 1, got {self.metrics_window!r}")
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -114,7 +166,7 @@ class TrainingConfig:
         return cls(
             algorithm=str(data.get("algorithm", "Duty-Cycled UWB-IMU NA-AEKF")),
             dt=float(data.get("dt", 0.005)),
-            movement_pattern=str(data.get("movement_pattern", "random")),
+            movement_pattern=str(data.get("movement_pattern", "Random Walk")),
             movement_speed=float(data.get("movement_speed", 1.0)),
             measurement_source=str(data.get("measurement_source", "both")),
             num_agents=int(data.get("num_agents", 1)),
@@ -284,19 +336,42 @@ class AITrainingEngine:
     # ── LOS + ranging, mirroring SimulationManager ──────────────────────────
 
     def _frame_los(self, agent: "TrainingAgentSim") -> List[bool]:
-        """Compute LOS once per step per agent; GPU batch with CPU fallback."""
+        """Reproduce ``SimulationManager._compute_frame_los``.
+
+        That method refreshes moving NLOS zones against the wall clock, then uses
+        ``batch_los_check_gpu`` on the GPU path and ``check_los_condition`` per
+        anchor otherwise. Calling ``channel.batch_update_los_conditions`` instead
+        would be a different geometry kernel, and skipping the zone refresh would
+        let a zone drift out of sync with where it is actually drawn.
+        """
         channel = agent.channel
-        try:
-            if self.config.allow_gpu and getattr(channel, "batch_update_los_conditions", None) is not None:
-                array = channel.batch_update_los_conditions(self._anchor_positions_array, agent.tag.position)
+        if not self.anchors:
+            return []
+
+        for zone in getattr(channel, "moving_nlos_zones", ()) or ():
+            try:
+                zone.update_position(time.time())
+            except Exception:
+                pass
+
+        tag_pos = agent.tag.position
+        if self.config.allow_gpu and gpu_manager.available and len(self.anchors) >= 2:
+            try:
+                from src.core.parallel.geometry_kernels import batch_los_check_gpu
+
+                array = batch_los_check_gpu(
+                    anchor_positions=self._anchor_positions_array,
+                    tag_position=(tag_pos.x, tag_pos.y),
+                    nlos_zones=channel.nlos_zones,
+                    moving_nlos_zones=channel.moving_nlos_zones,
+                )
                 los = [bool(v) for v in np.asarray(array).tolist()]
-            else:
-                los = [bool(channel.check_los_condition(a.position, agent.tag.position)) for a in self.anchors]
-        except Exception:
-            los = [bool(channel.check_los_condition(a.position, agent.tag.position)) for a in self.anchors]
-        if len(los) != len(self.anchors):
-            los = [True] * len(self.anchors)
-        return los
+                if len(los) == len(self.anchors):
+                    return los
+            except Exception:
+                pass
+
+        return [bool(channel.check_los_condition(a.position, tag_pos)) for a in self.anchors]
 
     def _prepare_channel_for_anchor(self, channel, anchor, tag_position, is_los: bool) -> None:
         """Reproduce ``SimulationManager._measure_single_anchor`` channel setup."""
