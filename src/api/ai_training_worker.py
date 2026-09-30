@@ -170,7 +170,15 @@ class TrainingWorker:
         self.run_dir = run_dir or self._default_run_dir()
         self.recorder = recorder or MetricsRecorder(self.run_dir)
         # port=0 means "bind an ephemeral port", which is different from "off".
-        self.http = MetricsHttpServer(self.recorder, port=http_port) if serve_http else None
+        # The control channel is how a supervising GUI drives this worker, so it
+        # is part of the same server rather than a second socket to keep in sync.
+        self.http = (
+            MetricsHttpServer(
+                self.recorder, port=http_port, control_handler=self.handle_control
+            )
+            if serve_http
+            else None
+        )
 
         self._phase = "running"
         self._step = 0
@@ -229,6 +237,7 @@ class TrainingWorker:
             self._pending_actions.clear()
             if self._phase == "stopped":
                 self._phase = "running"
+            self.recorder.mark_reset()
             self.recorder.set_phase(self._phase)
         return self.status
 
@@ -242,6 +251,42 @@ class TrainingWorker:
     @property
     def stopped(self) -> bool:
         return self._stop_event.is_set()
+
+    # ── supervision ────────────────────────────────────────────────────────
+
+    #: Maps the control channel's allowlist onto the lifecycle methods.
+    _CONTROL_COMMANDS = {
+        "pause": "pause",
+        "resume": "resume",
+        "reset": "reset",
+        "stop": "stop",
+    }
+
+    def start_http(self) -> Optional[int]:
+        """Bind the dashboard/control server and return its port, or None.
+
+        Idempotent, and called by :func:`main`. A supervising GUI constructs the
+        worker itself, so the worker must own starting its own server rather than
+        leaving that to the CLI.
+        """
+        if self.http is None:
+            return None
+        if getattr(self, "_http_started", False):
+            return self.http.port
+        port = self.http.start()
+        self._http_started = True
+        return port
+
+    def handle_control(self, command: str) -> Dict[str, Any]:
+        """Run one supervision command; returns the resulting status.
+
+        The HTTP layer already rejects names outside the allowlist, so an
+        unknown command here is a programming error rather than bad input.
+        """
+        attr = self._CONTROL_COMMANDS.get(command)
+        if attr is None:
+            raise ValueError("unknown control command: %r" % (command,))
+        return getattr(self, attr)()
 
     # ── client hand-off ────────────────────────────────────────────────────
 
@@ -402,7 +447,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     )
 
     if worker.http is not None:
-        bound = worker.http.start()
+        bound = worker.start_http()
         print(f"[worker] dashboard on http://127.0.0.1:{bound}")
     print(f"[worker] metrics -> {worker.recorder.metrics_path}")
 

@@ -13,7 +13,7 @@ import threading
 import time
 from collections import deque
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 DASHBOARD_HTML = """<!doctype html>
 <html lang="en">
@@ -194,6 +194,17 @@ class MetricsRecorder:
             self._phase = str(phase)
             self._write_status()
 
+    def mark_reset(self) -> None:
+        """Clear the progress counters after the simulation restarts.
+
+        Without this the status file keeps reporting the step and sim time of the
+        run that just ended, so a supervisor would poll a stale step forever.
+        """
+        with self._lock:
+            self._last_step = -1
+            self._sim_time = 0.0
+            self._write_status()
+
     def _write_status(self) -> None:
         status = {
             "pid": os.getpid(),
@@ -246,15 +257,41 @@ class MetricsRecorder:
 
 
 class MetricsHttpServer:
-    """Loopback-only dashboard server, so the charts outlive the PULSE GUI."""
+    """Loopback-only dashboard server, so the charts outlive the PULSE GUI.
 
-    def __init__(self, recorder: MetricsRecorder, host: str = "127.0.0.1", port: int = 8765):
+    It also carries the control channel (``POST /api/control``) a supervising GUI
+    uses to pause, resume, reset or stop the worker. Control and dashboards are
+    separable: a charts-only or headless run does not need the browser dashboard
+    served at all, so it can be turned off with :meth:`disable_dashboard`.
+    """
+
+    #: Commands a client may send. An allowlist, because the handler runs inside
+    #: the training process and an arbitrary command name must never reach it.
+    CONTROL_COMMANDS = ("pause", "resume", "reset", "stop")
+
+    def __init__(
+        self,
+        recorder: MetricsRecorder,
+        host: str = "127.0.0.1",
+        port: int = 8765,
+        control_handler: Optional[Callable[[str], Any]] = None,
+    ):
         self.recorder = recorder
         self.host = host
         self.requested_port = int(port)
         self.port = int(port)
+        self.control_handler = control_handler
+        self._dashboard_enabled = True
         self._httpd: Optional[ThreadingHTTPServer] = None
         self._thread: Optional[threading.Thread] = None
+
+    def disable_dashboard(self) -> None:
+        """Stop serving the HTML dashboard and ``/api/metrics``.
+
+        ``/api/status`` and ``/api/control`` stay available: the first is a cheap
+        liveness probe, the second is how a supervisor drives the run.
+        """
+        self._dashboard_enabled = False
 
     def start(self) -> int:
         recorder = self.recorder
@@ -273,24 +310,88 @@ class MetricsHttpServer:
                 except OSError:
                     pass
 
+            def _send_json(self, code: int, payload: Dict[str, Any]) -> None:
+                body = json.dumps(payload, default=float).encode("utf-8")
+                self._send(code, body, "application/json")
+
+            def _read_body(self) -> bytes:
+                length = int(self.headers.get("Content-Length") or 0)
+                return self.rfile.read(length) if length > 0 else b""
+
             def do_GET(self) -> None:  # noqa: N802
                 path = self.path.split("?", 1)[0].rstrip("/") or "/"
+                # Read through the owner so disable_dashboard() takes effect on
+                # the already-serving socket instead of only on the next start().
+                enabled = self.server.owner._dashboard_enabled
                 if path == "/":
-                    self._send(200, DASHBOARD_HTML.encode("utf-8"), "text/html; charset=utf-8")
+                    if not enabled:
+                        self._send(404, b"not found", "text/plain; charset=utf-8")
+                    else:
+                        self._send(200, DASHBOARD_HTML.encode("utf-8"), "text/html; charset=utf-8")
                 elif path == "/api/metrics":
-                    body = json.dumps({"tail": recorder.tail()}, default=float).encode("utf-8")
-                    self._send(200, body, "application/json")
+                    if not enabled:
+                        self._send(404, b"not found", "text/plain; charset=utf-8")
+                    else:
+                        body = json.dumps({"tail": recorder.tail()}, default=float).encode("utf-8")
+                        self._send(200, body, "application/json")
                 elif path == "/api/status":
                     body = json.dumps(recorder.status(), default=float).encode("utf-8")
                     self._send(200, body, "application/json")
                 else:
                     self._send(404, b"not found", "text/plain; charset=utf-8")
 
+            def do_POST(self) -> None:  # noqa: N802
+                path = self.path.split("?", 1)[0].rstrip("/") or "/"
+                if path != "/api/control":
+                    self._send(404, b"not found", "text/plain; charset=utf-8")
+                    return
+
+                handler = self.server.owner.control_handler
+                if handler is None:
+                    # Read the body first: leaving it unread desynchronises the
+                    # keep-alive connection instead of returning a clean error.
+                    self._read_body()
+                    self._send_json(503, {"ok": False, "error": "control channel unavailable"})
+                    return
+
+                raw = self._read_body()
+                try:
+                    payload = json.loads(raw.decode("utf-8") or "{}")
+                except (UnicodeDecodeError, ValueError):
+                    self._send_json(400, {"ok": False, "error": "body must be JSON"})
+                    return
+                if not isinstance(payload, dict):
+                    self._send_json(400, {"ok": False, "error": "body must be a JSON object"})
+                    return
+
+                command = payload.get("command")
+                if not isinstance(command, str) or command not in self.server.control_commands:
+                    self._send_json(
+                        400,
+                        {
+                            "ok": False,
+                            "error": "unknown command",
+                            "allowed": list(self.server.control_commands),
+                        },
+                    )
+                    return
+
+                try:
+                    result = handler(command)
+                except Exception as exc:  # a bad command must not kill the worker
+                    self._send_json(500, {"ok": False, "error": str(exc)})
+                    return
+                self._send_json(200, {"ok": True, "result": result})
+
             def log_message(self, *args) -> None:  # silence per-request stderr spam
                 return
 
         self._httpd = ThreadingHTTPServer((self.host, self.requested_port), Handler)
         self._httpd.daemon_threads = True
+        # The handler reaches the live server state through this back-reference
+        # rather than copying it, so later mutations are picked up immediately.
+        self._httpd.owner = self
+        self._httpd.control_commands = self.CONTROL_COMMANDS
         self.port = self._httpd.server_address[1]
         self._thread = threading.Thread(target=self._httpd.serve_forever, daemon=True)
         self._thread.start()
