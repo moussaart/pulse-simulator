@@ -275,6 +275,9 @@ class AITrainingEngine:
 
         self.algorithm_methods = Alghortimes_doc().get_algorithm_methods()
         self._lookup = {str(name).strip().lower(): name for name in self.algorithm_methods}
+        # Resolve now, not on the first step: a mistyped algorithm name must fail
+        # at startup rather than after a long run has already been spent.
+        self.default_algorithm = self.resolve_algorithm(config.algorithm)
 
         # Each agent gets its own channel model so the N agents stay independent;
         # `channel_conditions` is only the factory seed for agent 0, kept for
