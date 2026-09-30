@@ -5,6 +5,7 @@ __pycache__/
 build/
 dist/
 env/
+data/
 venv/
 uwb-imu-fusion-main/
 benchmark_output/

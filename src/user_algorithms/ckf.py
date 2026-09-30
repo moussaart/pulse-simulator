@@ -18,12 +18,17 @@ class CkfAlgorithm(BaseLocalizationAlgorithm):
     _R_STD  = 0.15                                  # ranging std-dev [m]
 
     # ------------------------------------------------------------------ #
+    #  Initial position override (set to (x, y) tuple, or None to seed   #
+    #  from the simulation tag position)                                 #
+    # ------------------------------------------------------------------ #
+    INITIAL_POSITION = None
+
+    # ------------------------------------------------------------------ #
 
     @property
     def name(self) -> str:
         return "Cubature Kalman Filter"
 
-    # ------------------------------------------------------------------
     def initialize(self) -> None:
         """Reset any persistent internal state."""
         pass
@@ -39,11 +44,29 @@ class CkfAlgorithm(BaseLocalizationAlgorithm):
         initialized = input_data.initialized
 
         # ── 1. First-call initialisation ─────────────────────────────────
-        if not initialized:
-            x0, y0 = 0.0, 0.0
-            state      = np.array([x0, y0, 0.0, 0.0], dtype=float)
+        if not initialized or state is None or covariance is None:
+            if self.INITIAL_POSITION is not None:
+                x0, y0 = float(self.INITIAL_POSITION[0]), float(self.INITIAL_POSITION[1])
+            else:
+                tag = getattr(input_data, "tag", None)
+                if tag is not None and hasattr(tag, "position") and tag.position is not None:
+                    x0 = float(getattr(tag.position, "x", 0.0))
+                    y0 = float(getattr(tag.position, "y", 0.0))
+                elif input_data.state is not None and len(input_data.state) >= 2:
+                    x0 = float(input_data.state[0])
+                    y0 = float(input_data.state[1])
+                else:
+                    x0, y0 = 0.0, 0.0
+
+            state      = np.array([10, 10, 0.0, 0.0], dtype=float)
             covariance = np.diag([1.0, 1.0, 1.0, 1.0])
             initialized = True
+            return AlgorithmOutput(
+                position=(float(state[0]), float(state[1])),
+                state=state,
+                covariance=covariance,
+                initialized=initialized,
+            )
 
         # ── 2. Build anchor array & measurement vector ───────────────────
         anchor_positions, z_meas = self._parse_measurements(measurements, anchors)

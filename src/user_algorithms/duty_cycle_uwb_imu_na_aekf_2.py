@@ -29,7 +29,7 @@ class DutyCycleUwbImuFusionNaAekf2Algorithm(DutyCycleUwbImuFusionNaAekfAlgorithm
 
     # -- Duty-cycled UWB scheduling ---------------------------------------
     DUTY_CYCLE_PERIOD = 6 # seconds
-    IMU_ONLY_PORCENTAGE = 0.75    # porcentage of IMU-only phase
+    IMU_ONLY_PORCENTAGE = 0.5    # porcentage of IMU-only phase
     HYBRID_PORCENTAGE   = 1-IMU_ONLY_PORCENTAGE  # porcentage of hybrid phase
     IMU_ONLY_DURATION = DUTY_CYCLE_PERIOD * IMU_ONLY_PORCENTAGE   # seconds (duration of the dead-reckoning phase)
     HYBRID_DURATION   = DUTY_CYCLE_PERIOD * HYBRID_PORCENTAGE   # seconds (duration of the fusion phase)

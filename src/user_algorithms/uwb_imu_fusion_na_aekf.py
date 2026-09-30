@@ -141,7 +141,7 @@ class UwbImuFusionNaAekfAlgorithm(BaseLocalizationAlgorithm):
         y0   = float(getattr(getattr(tag, "position", None), "y", 0.0))
         yaw0 = float(getattr(tag, "orientation", 0.0)) if hasattr(tag, "orientation") else 0.0
 
-        state      = np.array([x0, y0, 0.0, 0.0, 0.0, 0.0], dtype=float)
+        state      = np.array([0, 0, 0.0, 0.0, 0.0, 0.0], dtype=float)
         covariance = np.diag([5.0, 5.0, 10.0, 10.0, 1.0, 1.0]).astype(float)
         Q          = self._build_process_noise(None, dt=0.05)
         R          = None  # sized lazily once we know how many anchors we have

@@ -74,7 +74,7 @@ class AekfAlgorithm(BaseLocalizationAlgorithm):
     # ------------------------------------------------------------------ #
 
     def _initialise(self, input_data, anchors, measurements):
-        state      = np.array([0.0, 0.0, 0.0, 0.0], dtype=float)
+        state      = np.array([50, 50, 0.0, 0.0], dtype=float)
         covariance = np.diag([5.0, 5.0, 10.0, 10.0])
         Q          = self._build_Q(dt=input_data.dt)
         R          = np.eye(len(measurements)) * self.MEASUREMENT_NOISE**2

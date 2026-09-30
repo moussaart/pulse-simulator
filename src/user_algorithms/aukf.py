@@ -35,6 +35,12 @@ class AukfAlgorithm(BaseLocalizationAlgorithm):
     KAPPA = 0.0
 
     # ------------------------------------------------------------------ #
+    #  Initial position override (set to (x, y) tuple, or None to seed   #
+    #  from the simulation tag position)                                 #
+    # ------------------------------------------------------------------ #
+    INITIAL_POSITION = None
+
+    # ------------------------------------------------------------------ #
     #  BaseLocalizationAlgorithm interface                                #
     # ------------------------------------------------------------------ #
 
@@ -99,9 +105,17 @@ class AukfAlgorithm(BaseLocalizationAlgorithm):
         n = 4  # state dimension
 
         # ── 1. Initialisation ───────────────────────────────────────────
-        if not initialized:
-            state, covariance, Q, R = self._initialise(measurements)
+        if not initialized or state is None or covariance is None:
+            state, covariance, Q, R = self._initialise(input_data, measurements)
             initialized = True
+            return AlgorithmOutput(
+                position=(float(state[0]), float(state[1])),
+                state=state,
+                covariance=covariance,
+                initialized=initialized,
+                Q=Q,
+                R=R,
+            )
 
         # ── 2. Compute UKF weights ───────────────────────────────────────
         Wm, Wc, lam = self._compute_weights(n)
@@ -127,11 +141,26 @@ class AukfAlgorithm(BaseLocalizationAlgorithm):
     #  Private helpers                                                     #
     # ------------------------------------------------------------------ #
 
-    def _initialise(self, measurements):
-        state      = np.array([0.0, 0.0, 0.0, 0.0], dtype=float)
+    def _initialise(self, input_data: AlgorithmInput, measurements):
+        if self.INITIAL_POSITION is not None:
+            x0, y0 = float(self.INITIAL_POSITION[0]), float(self.INITIAL_POSITION[1])
+        else:
+            tag = getattr(input_data, "tag", None)
+            if tag is not None and hasattr(tag, "position") and tag.position is not None:
+                x0 = float(getattr(tag.position, "x", 0.0))
+                y0 = float(getattr(tag.position, "y", 0.0))
+            elif input_data.state is not None and len(input_data.state) >= 2:
+                x0 = float(input_data.state[0])
+                y0 = float(input_data.state[1])
+            else:
+                x0, y0 = 0.0, 0.0
+
+        state      = np.array([x0, y0, 0.0, 0.0], dtype=float)
         covariance = np.diag([5.0, 5.0, 10.0, 10.0])
-        Q          = self._build_Q(dt=0.1)
-        R          = np.eye(len(measurements)) * self.MEASUREMENT_NOISE**2
+        dt         = input_data.dt if (hasattr(input_data, 'dt') and input_data.dt) else 0.1
+        Q          = self._build_Q(dt=dt)
+        m_len      = len(measurements) if measurements is not None else 4
+        R          = np.eye(m_len) * self.MEASUREMENT_NOISE**2
         return state, covariance, Q, R
 
     # ── Unscented transform weights ──────────────────────────────────────
