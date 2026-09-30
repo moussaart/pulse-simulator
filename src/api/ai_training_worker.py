@@ -33,12 +33,37 @@ from src.core.uwb.uwb_devices import Anchor, Position
 
 __all__ = [
     "TrainingWorker",
+    "WORKER_FLAG",
     "default_anchor_layout",
+    "is_worker_invocation",
     "load_worker_config",
     "main",
+    "strip_worker_flag",
 ]
 
 PROTOCOL_VERSION = 3
+
+#: ``PULSE.exe --ai-training-worker ...`` runs this instead of the Qt GUI. The
+#: same flag works for ``python -m src.api.ai_training_worker`` and for the frozen
+#: build, so a supervised worker can be launched identically in development and in
+#: production.
+WORKER_FLAG = "--ai-training-worker"
+
+
+def is_worker_invocation(argv: Optional[Sequence[str]] = None) -> bool:
+    """True when this process was asked to be the headless worker."""
+    args = list(sys.argv[1:] if argv is None else argv)
+    return WORKER_FLAG in args
+
+
+def strip_worker_flag(argv: Optional[Sequence[str]] = None) -> List[str]:
+    """Drop :data:`WORKER_FLAG` so argparse never sees it.
+
+    An exact match only: ``--ai-training-worker=1`` is a different, unknown flag
+    and must not be silently treated as worker mode.
+    """
+    args = list(sys.argv[1:] if argv is None else argv)
+    return [a for a in args if a != WORKER_FLAG]
 
 
 def _jsonable(value: Any) -> Any:
@@ -343,7 +368,10 @@ class TrainingWorker:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="PULSE headless AI training worker")
+    parser = argparse.ArgumentParser(
+        prog="PULSE --ai-training-worker",
+        description="PULSE headless AI training worker",
+    )
     parser.add_argument("--config", default=None, help="path to a JSON config")
     parser.add_argument("--port", type=int, default=0, help="dashboard HTTP port (0 disables)")
     parser.add_argument("--num-agents", type=int, default=None)
