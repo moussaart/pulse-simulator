@@ -9,6 +9,12 @@ from typing import Optional, List, Dict, Any
 
 from .state import PulseState
 
+PROTOCOL_VERSION = 3
+
+
+class ProtocolError(ConnectionError):
+    """The server replied with a malformed or incompatible protocol frame."""
+
 
 class PulseClient:
     """
@@ -37,6 +43,9 @@ class PulseClient:
         self.timeout = timeout
         self._socket: Optional[socket.socket] = None
         self._reader = None
+        self.handshake: Optional[Dict[str, Any]] = None
+        self.algorithms: List[str] = []
+        self.num_agents = 1
 
     @property
     def connected(self) -> bool:
@@ -51,19 +60,57 @@ class PulseClient:
             delay: Delay between retries (seconds)
         """
         for attempt in range(retries):
+            candidate = None
+            reader = None
             try:
-                self._socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                self._socket.settimeout(self.timeout)
-                self._socket.connect((self.host, self.port))
-                self._reader = self._socket.makefile('r', encoding='utf-8')
+                candidate = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                candidate.settimeout(self.timeout)
+                candidate.connect((self.host, self.port))
+                reader = candidate.makefile('r', encoding='utf-8')
+                line = reader.readline()
+                if not line:
+                    raise ConnectionError("Server disconnected before protocol handshake")
+                try:
+                    hello = json.loads(line)
+                except json.JSONDecodeError as exc:
+                    raise ProtocolError("Invalid JSON in protocol handshake") from exc
+                if not isinstance(hello, dict) or hello.get("type") != "hello":
+                    raise ProtocolError("Expected protocol hello handshake")
+                if hello.get("protocol_version") != PROTOCOL_VERSION:
+                    raise ProtocolError(
+                        "protocol version mismatch: expected %d, got %r"
+                        % (PROTOCOL_VERSION, hello.get("protocol_version"))
+                    )
+                self._socket = candidate
+                self._reader = reader
+                self.handshake = hello
+                self.algorithms = list(hello.get("algorithms", []) or [])
+                self.num_agents = int(hello.get("num_agents", 1))
                 print(f"[PulseClient] Connected to {self.host}:{self.port}")
                 return
+            except ProtocolError:
+                if reader is not None:
+                    reader.close()
+                if candidate is not None:
+                    candidate.close()
+                raise
             except ConnectionRefusedError:
                 print(f"[PulseClient] Connection attempt {attempt + 1}/{retries} failed, retrying in {delay}s...")
                 time.sleep(delay)
             except Exception as e:
                 print(f"[PulseClient] Connection error: {e}")
                 time.sleep(delay)
+            finally:
+                if candidate is not None and candidate is not self._socket:
+                    if reader is not None:
+                        try:
+                            reader.close()
+                        except Exception:
+                            pass
+                    try:
+                        candidate.close()
+                    except Exception:
+                        pass
 
         raise ConnectionError(
             f"Failed to connect to PULSE server at {self.host}:{self.port} after {retries} attempts"
@@ -83,11 +130,12 @@ class PulseClient:
             raise ConnectionError("Not connected to server")
 
         try:
-            line = self._reader.readline()
-            if not line:
-                raise ConnectionError("Server disconnected")
-
-            data = json.loads(line)
+            data = self._receive_json()
+            if isinstance(data, dict) and data.get("type") == "error":
+                raise ProtocolError(
+                    "server error %s: %s"
+                    % (data.get("code", "unknown"), data.get("message", ""))
+                )
 
             # Server sends a list of state dicts (one per agent)
             if isinstance(data, list):
@@ -96,7 +144,41 @@ class PulseClient:
                 return [PulseState.from_dict(data)]
 
         except json.JSONDecodeError as e:
-            raise ValueError(f"Invalid JSON from server: {e}")
+            raise ProtocolError(f"Invalid JSON from server: {e}")
+
+    def _receive_json(self) -> Any:
+        if not self._reader:
+            raise ConnectionError("Not connected to server")
+        line = self._reader.readline()
+        if not line:
+            raise ConnectionError("Server disconnected")
+        try:
+            result = json.loads(line)
+        except json.JSONDecodeError as exc:
+            raise ProtocolError("Invalid JSON from server: %s" % exc) from exc
+        if not isinstance(result, (dict, list)):
+            raise ProtocolError("Server frame must be a JSON object or list")
+        return result
+
+    def reset(self) -> Dict[str, Any]:
+        """Request an acknowledged environment reset (the next state is separate)."""
+        if not self._socket:
+            raise ConnectionError("Not connected to server")
+        try:
+            self._socket.sendall((json.dumps({"command": "reset"}) + "\n").encode("utf-8"))
+        except OSError as exc:
+            raise ConnectionError("Failed to send reset command: %s" % exc) from exc
+        response = self._receive_json()
+        if not isinstance(response, dict):
+            raise ProtocolError("Expected reset acknowledgement object")
+        if response.get("type") == "error":
+            raise ProtocolError(
+                "server error %s: %s"
+                % (response.get("code", "unknown"), response.get("message", ""))
+            )
+        if response.get("type") != "ack" or response.get("command") != "reset":
+            raise ProtocolError("Expected reset acknowledgement")
+        return response
 
     def send_action(
         self,
@@ -145,6 +227,9 @@ class PulseClient:
             except Exception:
                 pass
             self._socket = None
+            self.handshake = None
+            self.algorithms = []
+            self.num_agents = 1
             print("[PulseClient] Disconnected.")
 
     def __enter__(self):

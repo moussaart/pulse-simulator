@@ -13,6 +13,8 @@ from .config import (
     DEFAULT_FUSION_POWER_MW,
 )
 
+DEFAULT_FILTER_ALGORITHM = "Duty-Cycled UWB-IMU NA-AEKF"
+
 class MacroSwitchWrapper(gym.Wrapper):
     """
     Wraps PulseRLEnv into a Time-Based Macro-Step environment for the
@@ -47,6 +49,7 @@ class MacroSwitchWrapper(gym.Wrapper):
         self.imu_freq_hz = imu_freq_hz
         self.uwb_freq_hz = uwb_freq_hz
         self.num_agents = env.num_agents
+        self.preferred_algorithm = DEFAULT_FILTER_ALGORITHM
         self.actual_num_anchors = 8  # default, updated after reset
 
         # ── Derived timing constants (initialized with defaults, updated from API) ────
@@ -92,6 +95,13 @@ class MacroSwitchWrapper(gym.Wrapper):
         
         self._empirical_imu_step_energy = 0.0
         self._empirical_both_step_energy = 0.0
+
+    def _resolve_algorithm(self) -> str:
+        available = list(getattr(self.env.unwrapped.client, "algorithms", []) or [])
+        for candidate in (self.preferred_algorithm, DEFAULT_FILTER_ALGORITHM):
+            if candidate in available:
+                return candidate
+        return self.preferred_algorithm or DEFAULT_FILTER_ALGORITHM
 
     # ── Reward ────────────────────────────────────────────────────────
 
@@ -240,7 +250,7 @@ class MacroSwitchWrapper(gym.Wrapper):
                 # provides both IMU and UWB data; the EKF's cycle timer
                 # decides when to fuse UWB measurements.
                 backend_action.append({
-                    "filter": "Duty-Cycled IMU-UWB Adaptive EKF",
+                    "filter": self._resolve_algorithm(),
                     "measurement_source": "Both",
                     "anchors": list(range(self.actual_num_anchors)),
                     "t_imu": float(self.current_t_imu[a_idx]),

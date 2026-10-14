@@ -7,7 +7,7 @@ from gymnasium import spaces
 import numpy as np
 from typing import Optional, Dict, Any, Tuple, List, Callable
 
-from .client import PulseClient
+from .client import PulseClient, ProtocolError
 from .state import PulseState
 
 
@@ -129,12 +129,12 @@ class PulseRLEnv(gym.Env):
             self.client.connect()
             self._connected = True
             self._current_states = self.client.receive_state()
-        elif not self._current_states:
-            # Fallback if somehow connected but no states
+        else:
+            # A Gymnasium reset is a protocol-level reset, not just a local
+            # observation reset. The v3 server acknowledges it, wakes its
+            # blocked action wait, and sends a fresh state on the next cycle.
+            self.client.reset()
             self._current_states = self.client.receive_state()
-            
-        # We DO NOT call receive_state() if already connected and we have states, 
-        # because the server is currently blocked waiting for our next action.
         
         obs = self.obs_formatter(self._current_states)
         
@@ -155,6 +155,10 @@ class PulseRLEnv(gym.Env):
 
         try:
             self._current_states = self.client.receive_state()
+        except ProtocolError:
+            # A structured server error is not an ordinary disconnect. Surface
+            # it to training code instead of silently returning a dummy state.
+            raise
         except ConnectionError:
             dummy_obs = np.zeros(self.observation_space.shape, dtype=np.float32)
             if self.vectorized:

@@ -11,10 +11,139 @@ import signal
 import time
 from datetime import datetime
 import socket
+import tempfile
 import torch
 import torch.nn as nn
 import torch.optim as optim
 from collections import deque
+from typing import Deque
+
+
+CHECKPOINT_KEYS = (
+    "step", "model", "optimizer", "target_model", "replay",
+    "rng_states", "episode", "agent_cumul_rewards", "algorithm",
+)
+
+
+class BoundedStats:
+    """Fixed-window values for long-running training telemetry."""
+
+    def __init__(self, limit: int = 1000):
+        self.limit = max(1, int(limit))
+        self.values: Deque[float] = deque(maxlen=self.limit)
+
+    def add(self, value: float) -> None:
+        self.values.append(float(value))
+
+    def mean(self) -> float:
+        return sum(self.values) / len(self.values) if self.values else 0.0
+
+    def last(self) -> float:
+        return self.values[-1] if self.values else 0.0
+
+    def total(self) -> float:
+        return sum(self.values)
+
+    def __len__(self) -> int:
+        return len(self.values)
+
+
+def atomic_torch_save(payload: Dict[str, Any], path: str) -> None:
+    """Save a checkpoint by replacing the destination only after serialization."""
+    directory = os.path.dirname(os.path.abspath(path)) or "."
+    os.makedirs(directory, exist_ok=True)
+    fd, tmp_path = tempfile.mkstemp(
+        prefix=os.path.basename(path) + ".", suffix=".tmp", dir=directory
+    )
+    os.close(fd)
+    try:
+        torch.save(payload, tmp_path)
+        os.replace(tmp_path, path)
+    finally:
+        if os.path.exists(tmp_path):
+            try:
+                os.remove(tmp_path)
+            except OSError:
+                pass
+
+
+def checkpoint_payload_is_resumable(payload: Dict[str, Any]) -> bool:
+    return isinstance(payload, dict) and all(key in payload for key in CHECKPOINT_KEYS)
+
+
+def make_checkpoint_payload(
+    step: int,
+    model: Dict[str, Any],
+    optimizer: Dict[str, Any],
+    target_model: Dict[str, Any],
+    replay: Dict[str, Any],
+    rng_states: Dict[str, Any],
+    episode: int,
+    agent_cumul_rewards: Any,
+    algorithm: str,
+    **extra: Any,
+) -> Dict[str, Any]:
+    """Build a versioned, validated payload for a resumable training checkpoint."""
+    payload = {
+        "checkpoint_version": 1,
+        "step": int(step),
+        "model": model,
+        "optimizer": optimizer,
+        "target_model": target_model,
+        "replay": replay,
+        "rng_states": rng_states,
+        "episode": int(episode),
+        "agent_cumul_rewards": agent_cumul_rewards,
+        "algorithm": str(algorithm),
+    }
+    payload.update(extra)
+    return payload
+
+
+def capture_rng_states() -> Dict[str, Any]:
+    states = {
+        "python": random.getstate(),
+        "numpy": np.random.get_state(),
+        "torch": torch.get_rng_state(),
+    }
+    if torch.cuda.is_available():
+        states["torch_cuda"] = torch.cuda.get_rng_state_all()
+    return states
+
+
+def restore_rng_states(states: Dict[str, Any]) -> None:
+    random.setstate(states["python"])
+    np.random.set_state(states["numpy"])
+    torch.set_rng_state(states["torch"])
+    if "torch_cuda" in states and torch.cuda.is_available():
+        torch.cuda.set_rng_state_all(states["torch_cuda"])
+
+
+class MetricsWriter:
+    """Append-only JSONL writer, flushed at each macro-step."""
+
+    def __init__(self, path: str):
+        self.path = path
+        os.makedirs(os.path.dirname(os.path.abspath(path)) or ".", exist_ok=True)
+        self._fh = open(path, "a", encoding="utf-8", buffering=1)
+
+    def write(self, record: Dict[str, Any]) -> None:
+        value = dict(record)
+        value.setdefault("wall_time", time.time())
+        self._fh.write(json.dumps(value, default=float) + "\n")
+        self._fh.flush()
+
+    def close(self) -> None:
+        try:
+            self._fh.close()
+        except OSError:
+            pass
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        self.close()
 
 
 def save_policy(policy_net, prefix="policy_switch_mo"):
@@ -55,10 +184,11 @@ from .config import (
     WALKING_SPEED_MPS,
 )
 from .model import QNetwork, ReplayBuffer, train_dqn_step
-from .env_wrapper import MacroSwitchWrapper
+from .env_wrapper import DEFAULT_FILTER_ALGORITHM, MacroSwitchWrapper
 
 # Global flag for graceful shutdown
 _shutdown_requested = False
+_active_env = None
 
 
 def _signal_handler(signum, frame):
@@ -70,13 +200,32 @@ def _signal_handler(signum, frame):
         sys.exit(1)
     _shutdown_requested = True
     print("\n\n🛑 Shutdown requested — exiting after current step...")
+    # Break a client blocked waiting for the worker's next state. The normal
+    # exception/finally path then writes the final checkpoint and closes cleanly.
+    active = _active_env
+    if active is not None:
+        try:
+            active.client.close()
+        except Exception:
+            pass
 
 
-def main():
-    global _shutdown_requested
+def main(argv=None):
+    global _shutdown_requested, _active_env
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Train the PULSE duty-cycle policy")
+    parser.add_argument("--checkpoint-every", type=int, default=5000)
+    parser.add_argument("--checkpoint-path", default="checkpoints/policy_switch_mo.resume.pt")
+    parser.add_argument("--metrics-path", default="runs/agent_switch_mo/metrics.jsonl")
+    parser.add_argument("--resume", action="store_true", help="resume from --checkpoint-path")
+    args = parser.parse_args(argv)
+    _shutdown_requested = False
 
     # Install signal handler for graceful Ctrl+C
     signal.signal(signal.SIGINT, _signal_handler)
+    if hasattr(signal, "SIGTERM"):
+        signal.signal(signal.SIGTERM, _signal_handler)
 
     # ── Configuration ─────────────────────────────────────────────────
     PORT = 5555  # Default port for PULSE simulator
@@ -164,6 +313,7 @@ def main():
         imu_freq_hz=IMU_HZ,
         uwb_freq_hz=UWB_HZ,
     )
+    _active_env = base_env
 
     # ── PyTorch RL Initialization & GPU Configuration ─────────────────
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -186,8 +336,30 @@ def main():
     current_episode = 0
     current_step = 0
     epsilon = 1.0
+    global_step = 0
+    metrics_writer = None
+    training_started = False
 
-    print("   Starting fresh training session...\n")
+    if args.resume:
+        if not os.path.exists(args.checkpoint_path):
+            raise FileNotFoundError("resume checkpoint not found: %s" % args.checkpoint_path)
+        checkpoint = torch.load(args.checkpoint_path, map_location=device, weights_only=False)
+        if not checkpoint_payload_is_resumable(checkpoint):
+            raise ValueError("checkpoint is incomplete and cannot resume training")
+        if checkpoint["algorithm"] != DEFAULT_FILTER_ALGORITHM:
+            raise ValueError("checkpoint algorithm does not match this training wrapper")
+        policy_net.load_state_dict(checkpoint["model"])
+        target_net.load_state_dict(checkpoint["target_model"])
+        optimizer.load_state_dict(checkpoint["optimizer"])
+        replay_buffer.buffer = checkpoint["replay"].get("buffer", [])
+        replay_buffer.position = int(checkpoint["replay"].get("position", 0))
+        current_episode = int(checkpoint["episode"])
+        current_step = int(checkpoint["step"])
+        global_step = current_step
+        epsilon = float(checkpoint.get("epsilon", epsilon))
+        restore_rng_states(checkpoint["rng_states"])
+
+    print("   Resuming checkpoint...\n" if args.resume else "   Starting fresh training session...\n")
 
     def select_actions(state, eps):
         """Select epsilon-greedy actions across all homogeneous agents."""
@@ -199,8 +371,41 @@ def main():
                 q_values = policy_net(state_t)  # shape (NUM_AGENTS, action_dim)
                 return q_values.argmax(dim=1).cpu().numpy()
 
+    checkpoint_state = {
+        "episode": current_episode,
+        "agent_cumul_rewards": [0.0] * NUM_AGENTS,
+        "epsilon": epsilon,
+        "sim_time": 0.0,
+    }
+
+    def save_resume_checkpoint():
+        if not training_started:
+            return False
+        payload = make_checkpoint_payload(
+            step=global_step,
+            model=policy_net.state_dict(),
+            optimizer=optimizer.state_dict(),
+            target_model=target_net.state_dict(),
+            replay={
+                "buffer": replay_buffer.buffer,
+                "position": replay_buffer.position,
+                "capacity": replay_buffer.capacity,
+            },
+            rng_states=capture_rng_states(),
+            episode=checkpoint_state["episode"],
+            agent_cumul_rewards=checkpoint_state["agent_cumul_rewards"],
+            algorithm=DEFAULT_FILTER_ALGORITHM,
+            epsilon=checkpoint_state["epsilon"],
+            sim_time=checkpoint_state["sim_time"],
+        )
+        atomic_torch_save(payload, args.checkpoint_path)
+        print("[checkpoint] saved resumable state at step %d" % global_step)
+        return True
+
     try:
         obs, info = env.reset()
+        training_started = True
+        metrics_writer = MetricsWriter(args.metrics_path)
         print(f"\n✅ Connected with {NUM_AGENTS} agents!")
 
         # Detect actual anchor count from the initial state
@@ -223,11 +428,11 @@ def main():
                 break
 
             episode_rewards = np.zeros(NUM_AGENTS)
-            episode_errors = []
-            episode_energies = []
-            episode_t_imus = []
-            episode_t_fusions = []
-            episode_losses = []
+            episode_errors = BoundedStats(limit=5000)
+            episode_energies = BoundedStats(limit=5000)
+            episode_t_imus = BoundedStats(limit=5000)
+            episode_t_fusions = BoundedStats(limit=5000)
+            episode_losses = BoundedStats(limit=5000)
 
             step = 0
             sim_time = 0.0
@@ -279,7 +484,7 @@ def main():
                 loss_val = train_dqn_step(policy_net, target_net, optimizer, replay_buffer, BATCH_SIZE, GAMMA, device=device)
                 t_optimizer = time.perf_counter() - t_opt_start
                 if loss_val > 0.0:
-                    episode_losses.append(loss_val)
+                    episode_losses.add(loss_val)
 
                 # Periodically update the target network
                 if step > 0 and step % TARGET_UPDATE == 0:
@@ -302,10 +507,10 @@ def main():
                 a0_t_fusion = env.current_t_fusion[0]
                 a0_tau = env.tau_seconds
 
-                episode_errors.append(mean_err)
-                episode_energies.append(a0_energy)
-                episode_t_imus.append(a0_t_imu)
-                episode_t_fusions.append(a0_t_fusion)
+                episode_errors.add(mean_err)
+                episode_energies.add(a0_energy)
+                episode_t_imus.add(a0_t_imu)
+                episode_t_fusions.add(a0_t_fusion)
 
                 # Print debugging info for the first 3 macro-steps to verify
                 if step < 3:
@@ -323,7 +528,8 @@ def main():
                                       f"imu_pwr={s0.energy.imu_power_mW:.2f}mW")
 
                 # Print progress
-                loss_str = f"L={np.mean(episode_losses[-10:]):.4f}" if episode_losses else "L=N/A"
+                recent_losses = list(episode_losses.values)[-10:]
+                loss_str = f"L={np.mean(recent_losses):.4f}" if recent_losses else "L=N/A"
                 print(
                     f"  [Time: {sim_time:>5.1f}s] "
                     f"T_imu: {a0_t_imu:.2f}s | T_fusion: {a0_t_fusion:.2f}s | "
@@ -337,6 +543,28 @@ def main():
 
                 obs = next_obs
                 step += 1
+                global_step += 1
+                checkpoint_state.update({
+                    "episode": episode,
+                    "agent_cumul_rewards": episode_rewards.tolist(),
+                    "epsilon": epsilon,
+                    "sim_time": sim_time,
+                })
+                if metrics_writer is not None:
+                    metrics_writer.write({
+                        "episode": episode + 1,
+                        "step": step,
+                        "global_step": global_step,
+                        "sim_time": sim_time,
+                        "reward": np.asarray(reward).tolist(),
+                        "cumulative_reward": episode_rewards.tolist(),
+                        "error": float(mean_err),
+                        "energy_uJ": float(a0_energy),
+                        "loss": float(loss_val),
+                        "epsilon": float(epsilon),
+                    })
+                if args.checkpoint_every > 0 and global_step % args.checkpoint_every == 0:
+                    save_resume_checkpoint()
 
                 if terminated.all() or truncated.all():
                     break
@@ -345,11 +573,11 @@ def main():
                 break
 
             # ── Episode summary ──────────────────────────────────────
-            ep_mean_error = np.mean(episode_errors) if episode_errors else 0.0
-            ep_mean_energy = np.mean(episode_energies) if episode_energies else 0.0
-            ep_mean_t_imu = np.mean(episode_t_imus) if episode_t_imus else 0.0
-            ep_mean_t_fusion = np.mean(episode_t_fusions) if episode_t_fusions else 0.0
-            ep_mean_loss = np.mean(episode_losses) if episode_losses else 0.0
+            ep_mean_error = episode_errors.mean()
+            ep_mean_energy = episode_energies.mean()
+            ep_mean_t_imu = episode_t_imus.mean()
+            ep_mean_t_fusion = episode_t_fusions.mean()
+            ep_mean_loss = episode_losses.mean()
             total_r = episode_rewards.sum()
             is_best = total_r > best_episode_reward
             if is_best:
@@ -382,11 +610,11 @@ def main():
             print(f"{'═' * 60}\n")
 
             # Free episode-level lists
-            episode_errors.clear()
-            episode_energies.clear()
-            episode_t_imus.clear()
-            episode_t_fusions.clear()
-            episode_losses.clear()
+            episode_errors = BoundedStats(limit=5000)
+            episode_energies = BoundedStats(limit=5000)
+            episode_t_imus = BoundedStats(limit=5000)
+            episode_t_fusions = BoundedStats(limit=5000)
+            episode_losses = BoundedStats(limit=5000)
 
             # Reset for next episode
             obs, info = env.reset()
@@ -404,7 +632,18 @@ def main():
         import traceback
         traceback.print_exc()
     finally:
-        if 'policy_net' in locals():
+        if training_started:
+            try:
+                save_resume_checkpoint()
+            except Exception as exc:
+                print("[checkpoint] final save failed: %s" % exc)
+        if training_started and 'policy_net' in locals():
             save_policy(policy_net)
-        env.close()
+        if metrics_writer is not None:
+            metrics_writer.close()
+        try:
+            env.close()
+        except Exception:
+            pass
+        _active_env = None
         print(f"\n✅ Disconnected from PULSE simulator.")

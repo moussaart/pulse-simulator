@@ -2,7 +2,7 @@
 Typed dataclass for parsing the enriched JSON state from the PULSE simulator.
 """
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, fields
 from typing import List, Optional, Dict, Any
 
 
@@ -96,6 +96,8 @@ class PulseState:
     step: int = 0
     timestamp: float = 0.0
     protocol_version: int = 1
+    step_id: int = 0
+    reward: Dict[str, Any] = field(default_factory=dict)
 
     # Positions
     tag_position_gt: List[float] = field(default_factory=lambda: [0.0, 0.0, 0.0])
@@ -129,23 +131,47 @@ class PulseState:
     @classmethod
     def from_dict(cls, data: dict) -> "PulseState":
         """Parse a JSON state dictionary into a PulseState instance."""
+        step = int(data.get("step", data.get("step_id", 0)))
+        raw_measurements = data.get("measurements")
+        if isinstance(raw_measurements, dict):
+            if "uwb_ranges" in raw_measurements or "source" in raw_measurements:
+                measurement_data = raw_measurements
+            else:
+                measurement_data = {"uwb_ranges": list(raw_measurements.values())}
+        else:
+            measurement_data = {}
+
+        raw_algorithm = data.get("algorithm")
+        if isinstance(raw_algorithm, str):
+            raw_algorithm = {"name": raw_algorithm}
+        elif not isinstance(raw_algorithm, dict):
+            raw_algorithm = {}
+
+        def _known(cls_type, raw):
+            raw = raw if isinstance(raw, dict) else {}
+            valid = {field.name for field in fields(cls_type)}
+            return cls_type(**{key: value for key, value in raw.items() if key in valid})
+
+        raw_reward = data.get("reward")
         return cls(
             agent_id=data.get("agent_id", 0),
-            step=data.get("step", 0),
+            step=step,
             timestamp=data.get("timestamp", 0.0),
             protocol_version=data.get("protocol_version", 1),
+            step_id=int(data.get("step_id", step)),
+            reward=raw_reward if isinstance(raw_reward, dict) else {},
             tag_position_gt=data.get("tag_position_gt", [0.0, 0.0, 0.0]),
             tag_position_estimated=data.get("tag_position_estimated"),
             anchor_positions=data.get("anchor_positions", []),
             anchor_ids=data.get("anchor_ids", []),
-            measurements=MeasurementData(**data["measurements"]) if "measurements" in data else MeasurementData(),
-            imu_data=IMUData(**data["imu_data"]) if "imu_data" in data else IMUData(),
-            nlos_info=NLOSInfo(**data["nlos_info"]) if "nlos_info" in data else NLOSInfo(),
-            algorithm=AlgorithmInfo(**data["algorithm"]) if "algorithm" in data else AlgorithmInfo(),
-            precision=PrecisionInfo(**data["precision"]) if "precision" in data else PrecisionInfo(),
-            energy=EnergyInfo(**data["energy"]) if "energy" in data else EnergyInfo(),
+            measurements=_known(MeasurementData, measurement_data),
+            imu_data=_known(IMUData, data.get("imu_data")),
+            nlos_info=_known(NLOSInfo, data.get("nlos_info")),
+            algorithm=_known(AlgorithmInfo, raw_algorithm),
+            precision=_known(PrecisionInfo, data.get("precision")),
+            energy=_known(EnergyInfo, data.get("energy")),
             environment=cls._parse_environment(data.get("environment")),
-            duty_cycle=DutyCycleInfo(**data["duty_cycle"]) if "duty_cycle" in data else DutyCycleInfo(),
+            duty_cycle=_known(DutyCycleInfo, data.get("duty_cycle")),
         )
 
     @property
