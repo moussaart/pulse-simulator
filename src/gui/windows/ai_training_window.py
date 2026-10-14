@@ -18,7 +18,13 @@ from src.gui.widgets import ActionButton
 from src.core.localization.base_algorithm import BaseLocalizationAlgorithm
 from src.core.parallel.gpu_backend import gpu_manager
 
-from src.api.ai_gym_server import AIGymServer
+from src.api.ai_gym_server import (
+    AIGymServer,
+    REASON_ACTION,
+    REASON_DISCONNECTED,
+    REASON_STOPPED,
+    unpack_action_result,
+)
 from src.api.ai_training_facade import AITrainingAPI
 from src.core.localization.Localization_alghorthime import LocalizationAlgorthimes
 from src.core.localization.Alghortimes_doc import Alghortimes_doc
@@ -1091,10 +1097,19 @@ class AITrainingWindow(QMainWindow):
                 
         # 2. WAIT FOR ACTION
         action_response = self.server.wait_for_action(timeout=0.01) # Non-blocking poll
-        if action_response is None:
+        response = unpack_action_result(action_response)
+        if response is None:
             return # Wait for next GUI tick
-            
-        all_action_indices, metrics = action_response
+
+        all_action_indices, metrics, reason = response
+        if reason != REASON_ACTION:
+            if reason == REASON_DISCONNECTED:
+                self.status_label.setText("RL client disconnected. Waiting for reconnect...")
+                self.state_sent_for_step = False
+            elif reason == REASON_STOPPED:
+                self.pause()
+                self.status_label.setText("Training server stopped.")
+            return
         if self.current_step % 100 == 0:
             self.log_message(f"📥 Received actions at t={self.agent_sim_times[0]:.2f}s")
         
