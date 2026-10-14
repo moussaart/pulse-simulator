@@ -5,6 +5,7 @@ __pycache__/
 build/
 dist/
 env/
+docs/superpowers/
 data/
 venv/
 uwb-imu-fusion-main/
@@ -24,3 +25,9 @@ coverage.xml
 .coverage
 
 *.spec
+
+# AI training runtime artifacts
+runs/
+unused/
+checkpoints/*.resume.pt
+checkpoints/*.resume.pt.*
