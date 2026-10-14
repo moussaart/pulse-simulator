@@ -28,6 +28,14 @@ import time
 from typing import Any, Dict, List, Optional, Sequence
 
 from src.api.ai_training_engine import AITrainingEngine, TrainingConfig
+from src.api.ai_gym_server import (
+    AIGymServer,
+    REASON_ACTION,
+    REASON_DISCONNECTED,
+    REASON_RESET,
+    REASON_STOPPED,
+)
+from src.api.frame_publisher import FramePublisher
 from src.api.training_metrics import MetricsHttpServer, MetricsRecorder
 from src.core.uwb.uwb_devices import Anchor, Position
 
@@ -158,6 +166,11 @@ class TrainingWorker:
         recorder: Optional[MetricsRecorder] = None,
         serve_http: bool = False,
         http_port: int = 8765,
+        serve_frames: bool = False,
+        frames_port: int = 0,
+        serve_gym: bool = False,
+        gym_host: str = "0.0.0.0",
+        gym_port: int = 5555,
     ) -> None:
         self.config = config if config is not None else load_worker_config(config_path)
         # Building the engine validates the algorithm, movement pattern and dt,
@@ -179,6 +192,19 @@ class TrainingWorker:
             if serve_http
             else None
         )
+        self.frames = FramePublisher(port=frames_port) if serve_frames else None
+        self.gym = (
+            AIGymServer(
+                host=gym_host,
+                port=gym_port,
+                num_agents=self.config.num_agents,
+                algorithms=self.engine.registered_algorithms(),
+                on_reset=self.reset,
+            )
+            if serve_gym
+            else None
+        )
+        self._last_frame: Optional[Dict[str, Any]] = None
 
         self._phase = "running"
         self._step = 0
@@ -187,6 +213,7 @@ class TrainingWorker:
         self._started_wall = time.time()
         self._lock = threading.RLock()
         self._stop_event = threading.Event()
+        self._wake_event = threading.Event()
         self.recorder.set_phase("running")
 
     @staticmethod
@@ -210,6 +237,7 @@ class TrainingWorker:
                 "num_anchors": len(self.engine.anchors),
                 "run_dir": self.run_dir,
                 "metrics_path": self.recorder.metrics_path,
+                "gym_port": self.gym.port if self.gym is not None else None,
                 "uptime_s": time.time() - self._started_wall,
             }
 
@@ -218,6 +246,7 @@ class TrainingWorker:
             if self._phase != "stopped":
                 self._phase = "paused"
                 self.recorder.set_phase("paused")
+                self._wake_event.set()
         return self.status
 
     def resume(self) -> Dict[str, Any]:
@@ -226,6 +255,7 @@ class TrainingWorker:
                 return self.status
             self._phase = "running"
             self.recorder.set_phase("running")
+            self._wake_event.set()
         return self.status
 
     def reset(self) -> Dict[str, Any]:
@@ -235,6 +265,7 @@ class TrainingWorker:
             self._step = 0
             self._pending_reward = None
             self._pending_actions.clear()
+            self._wake_event.set()
             if self._phase == "stopped":
                 self._phase = "running"
             self.recorder.mark_reset()
@@ -243,6 +274,11 @@ class TrainingWorker:
 
     def stop(self) -> Dict[str, Any]:
         self._stop_event.set()
+        self._wake_event.set()
+        # A blocked RL-action wait must be released before taking the worker
+        # lifecycle lock; otherwise an HTTP stop can deadlock behind tick().
+        if self.gym is not None:
+            self.gym.stop()
         with self._lock:
             self._phase = "stopped"
             self.recorder.set_phase("stopped")
@@ -276,6 +312,30 @@ class TrainingWorker:
         port = self.http.start()
         self._http_started = True
         return port
+
+    def start_frames(self) -> Optional[int]:
+        """Start the passive frame stream, if enabled, and return its port."""
+        if self.frames is None:
+            return None
+        if getattr(self, "_frames_started", False):
+            return self.frames.port
+        port = self.frames.start()
+        self._frames_started = True
+        return port
+
+    def start_services(self) -> Dict[str, Any]:
+        """Start the worker's control/metrics and viewer-frame endpoints."""
+        services = {
+            "http_port": self.start_http(),
+            "frames_port": self.start_frames(),
+        }
+        if self.gym is not None:
+            if not self.gym.start():
+                raise RuntimeError("could not start RL gym server: %r" % self.gym.last_error)
+            services["gym_port"] = self.gym.port
+        else:
+            services["gym_port"] = None
+        return services
 
     def handle_control(self, command: str) -> Dict[str, Any]:
         """Run one supervision command; returns the resulting status.
@@ -337,7 +397,8 @@ class TrainingWorker:
         with self._lock:
             if self._phase in ("stopped", "paused"):
                 # Report the current frame without advancing anything.
-                return self._state_frame([], self._step, [])
+                frame = self._state_frame([], self._step, [])
+                return frame
 
             actions = self._take_actions(self.config.num_agents)
             report = self.engine.step(actions)
@@ -353,6 +414,16 @@ class TrainingWorker:
                 sim_time = metrics.get("time")
                 if sim_time is None and index < len(self.engine.agents):
                     sim_time = getattr(self.engine.agents[index], "sim_time", 0.0)
+                reward_step = reward.get("reward_step")
+                reward_cumulative = reward.get("reward_cumulative")
+                if isinstance(reward_step, (list, tuple)):
+                    reward_step = reward_step[index] if index < len(reward_step) else None
+                if isinstance(reward_cumulative, (list, tuple)):
+                    reward_cumulative = (
+                        reward_cumulative[index]
+                        if index < len(reward_cumulative)
+                        else None
+                    )
                 self.recorder.record({
                     "step": step_id,
                     "time": float(sim_time or 0.0),
@@ -364,11 +435,153 @@ class TrainingWorker:
                     "total_power_mW": energy.get("total_power_mW"),
                     "backend": metrics.get("backend"),
                     "provide_imu": metrics.get("provide_imu"),
-                    "reward_step": reward.get("reward_step"),
-                    "reward_cumulative": reward.get("reward_cumulative"),
+                    "reward_step": reward_step,
+                    "reward_cumulative": reward_cumulative,
                 })
 
-            return self._state_frame(report["agents"], step_id, actions)
+            frame = self._state_frame(report["agents"], step_id, actions)
+            self._last_frame = frame
+            if self.frames is not None:
+                self.frames.publish(frame)
+            return frame
+
+    def _gym_state_list(self, frame: Dict[str, Any]) -> List[Dict[str, Any]]:
+        """Convert engine observations to the external client's typed schema."""
+        states = []
+        for index, agent_record in enumerate(frame.get("agents", [])):
+            obs = agent_record.get("observation") or {}
+            if not obs:
+                true_position = list(agent_record.get("true_position", [0.0, 0.0]))
+                while len(true_position) < 3:
+                    true_position.append(0.0)
+                states.append({
+                    "agent_id": agent_record.get("agent_id", index),
+                    "step": frame.get("step_id", 0),
+                    "step_id": frame.get("step_id", 0),
+                    "protocol_version": PROTOCOL_VERSION,
+                    "valid": False,
+                    "tag_position_gt": true_position,
+                    "tag_position_estimated": None,
+                })
+                continue
+
+            agent = self.engine.agents[index]
+            imu = getattr(agent.tag, "imu_data", None)
+            def _last(values):
+                try:
+                    return float(values[-1])
+                except (TypeError, ValueError, IndexError, KeyError):
+                    return 0.0
+
+            anchor_ids = list(obs.get("anchor_ids", []))
+            raw_ranges = obs.get("measurements", {})
+            true_ranges = obs.get("true_distances", {})
+            los_by_id = obs.get("los", {})
+            nlos_ids = [str(anchor_id) for anchor_id in anchor_ids
+                        if not bool(los_by_id.get(anchor_id, True))]
+            energy = obs.get("energy", {})
+            tag_position_gt = list(obs.get("tag_position_gt", [0.0, 0.0]))
+            while len(tag_position_gt) < 3:
+                tag_position_gt.append(0.0)
+            state = dict(obs)
+            state.update({
+                "step": int(frame.get("step_id", 0)),
+                "step_id": int(frame.get("step_id", 0)),
+                "protocol_version": PROTOCOL_VERSION,
+                "valid": bool(agent_record.get("valid", False)),
+                "tag_position_gt": tag_position_gt,
+                "measurements": {
+                    "source": obs.get("measurement_source", "uwb"),
+                    "uwb_ranges": [float(raw_ranges[aid]) for aid in anchor_ids if aid in raw_ranges],
+                    "true_distances": [float(true_ranges[aid]) for aid in anchor_ids if aid in true_ranges],
+                },
+                "imu_data": {
+                    "acceleration": [_last(getattr(imu, key, [])) for key in ("acc_x", "acc_y", "acc_z")],
+                    "angular_velocity": [_last(getattr(imu, key, [])) for key in ("gyro_x", "gyro_y", "gyro_z")],
+                    "enabled": bool(getattr(agent.tag, "imu_data_on", False)),
+                },
+                "nlos_info": {
+                    "is_los": [bool(los_by_id.get(aid, True)) for aid in anchor_ids],
+                    "nlos_count": len(nlos_ids),
+                    "nlos_anchor_ids": nlos_ids,
+                },
+                "algorithm": {"name": obs.get("algorithm", self.config.algorithm)},
+                "energy": {
+                    "total_power_mW": energy.get("total_power_mW", 0.0),
+                    "step_energy_uJ": energy.get("step_energy_uJ", 0.0),
+                    "cumulative_energy_J": float(energy.get("cumulative_energy_uJ", 0.0)) / 1e6,
+                },
+                "timestamp": obs.get("timestamp", frame.get("sim_time", 0.0)),
+            })
+            states.append(_jsonable(state))
+        return states
+
+    def _actions_from_gym(self, raw_action: Any) -> List[Dict[str, Any]]:
+        """Adapt external anchor selections to one engine action per agent."""
+        n_agents = self.config.num_agents
+        if isinstance(raw_action, dict):
+            values = [raw_action]
+        elif isinstance(raw_action, (list, tuple)):
+            values = list(raw_action)
+            # A flat list of indices is one agent's anchor selection.
+            if values and all(isinstance(item, (int, float)) for item in values):
+                values = [values]
+        else:
+            values = []
+
+        result = []
+        default_anchors = list(range(len(self.engine.anchors)))
+        for index in range(n_agents):
+            value = values[index] if index < len(values) else None
+            if isinstance(value, dict):
+                action = dict(value)
+                action.setdefault("filter", self.config.algorithm)
+                action.setdefault("measurement_source", self.config.measurement_source)
+                action.setdefault("anchors", default_anchors)
+            elif isinstance(value, (list, tuple)):
+                action = {
+                    "filter": self.config.algorithm,
+                    "measurement_source": self.config.measurement_source,
+                    "anchors": list(value),
+                }
+            else:
+                action = {
+                    "filter": self.config.algorithm,
+                    "measurement_source": self.config.measurement_source,
+                    "anchors": default_anchors,
+                }
+            result.append(action)
+        return result
+
+    def _exchange_with_agent(self, frame: Dict[str, Any]) -> None:
+        """Send a state and wait cancellably for the next external action."""
+        if self.gym is None or not self.gym.connected:
+            return
+        if not self.gym.send_state(self._gym_state_list(frame)):
+            return
+        while not self.stopped and self.status["phase"] == "running" and self.gym.connected:
+            response = self.gym.wait_for_action(timeout=0.25)
+            if response is None:
+                continue
+            if response.reason == REASON_ACTION:
+                actions = self._actions_from_gym(response.action)
+                with self._lock:
+                    for i, action in enumerate(actions):
+                        self._pending_actions.append({"agent_id": i, "action": action})
+                    metrics = response.metrics or {}
+                    steps = metrics.get("step_rewards", [])
+                    cumulative = metrics.get("cumulative_rewards", [])
+                    if not isinstance(steps, (list, tuple)):
+                        steps = [steps]
+                    if not isinstance(cumulative, (list, tuple)):
+                        cumulative = [cumulative]
+                    self._pending_reward = {
+                        "reward_step": list(steps),
+                        "reward_cumulative": list(cumulative),
+                    }
+                return
+            if response.reason in (REASON_DISCONNECTED, REASON_RESET, REASON_STOPPED):
+                return
 
     def _state_frame(self, agents: List[Dict[str, Any]], step_id: int,
                      actions: Optional[List[Dict[str, Any]]] = None) -> Dict[str, Any]:
@@ -392,10 +605,16 @@ class TrainingWorker:
         while not self.stopped:
             if max_steps is not None and taken >= max_steps:
                 break
+            if self.status["phase"] == "paused":
+                self._wake_event.wait(0.25)
+                self._wake_event.clear()
+                continue
             frame = self.tick()
-            taken += 1
+            if frame.get("step_id") == self._step - 1:
+                taken += 1
             if on_frame is not None:
                 on_frame(frame)
+            self._exchange_with_agent(frame)
         return taken
 
     def run_in_thread(self, max_steps: Optional[int] = None) -> threading.Thread:
@@ -407,6 +626,10 @@ class TrainingWorker:
 
     def close(self) -> None:
         self.stop()
+        if self.frames is not None:
+            self.frames.stop()
+        if self.gym is not None:
+            self.gym.stop()
         if self.http is not None:
             self.http.stop()
         self.recorder.close()
@@ -425,6 +648,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--run-dir", default=None)
     parser.add_argument("--max-steps", type=int, default=None)
     parser.add_argument("--http", action="store_true", help="serve the browser dashboard")
+    parser.add_argument("--frames", action="store_true", help="publish state frames to viewer subscribers")
+    parser.add_argument("--frames-port", type=int, default=0, help="frame publisher port (0 chooses an ephemeral port)")
+    parser.add_argument("--ready-file", default=None, help="write bound endpoint details to this JSON file")
+    parser.add_argument("--gym", action="store_true", help="serve the external RL client TCP protocol")
+    parser.add_argument("--gym-port", type=int, default=5555, help="RL client TCP port")
     return parser
 
 
@@ -444,11 +672,33 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         run_dir=args.run_dir,
         serve_http=bool(args.http),
         http_port=args.port,
+        serve_frames=bool(args.frames),
+        frames_port=args.frames_port,
+        serve_gym=bool(args.gym),
+        gym_port=args.gym_port,
     )
 
+    services = worker.start_services()
     if worker.http is not None:
-        bound = worker.start_http()
-        print(f"[worker] dashboard on http://127.0.0.1:{bound}")
+        print(f"[worker] dashboard/control on http://127.0.0.1:{services['http_port']}")
+    if worker.frames is not None:
+        print(f"[worker] frames on tcp://127.0.0.1:{services['frames_port']}")
+    if args.ready_file:
+        ready_path = os.path.abspath(args.ready_file)
+        os.makedirs(os.path.dirname(ready_path), exist_ok=True)
+        payload = {
+            "pid": os.getpid(),
+            "http_port": services["http_port"],
+            "frames_port": services["frames_port"],
+            "gym_port": services["gym_port"],
+            "run_dir": worker.run_dir,
+            "metrics_path": worker.recorder.metrics_path,
+        }
+        tmp_path = ready_path + ".tmp"
+        with open(tmp_path, "w", encoding="utf-8") as ready_file:
+            json.dump(payload, ready_file)
+        os.replace(tmp_path, ready_path)
+        print("[worker] ready " + json.dumps(payload), flush=True)
     print(f"[worker] metrics -> {worker.recorder.metrics_path}")
 
     def _handle_signal(signum, _frame):

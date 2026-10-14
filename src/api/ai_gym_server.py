@@ -34,6 +34,23 @@ ActionResult = namedtuple("ActionResult", "action metrics reason")
 REASON_ACTION = "action"
 REASON_DISCONNECTED = "disconnected"
 REASON_STOPPED = "stopped"
+REASON_RESET = "reset"
+
+
+def unpack_action_result(result: Any):
+    """Return ``(action, metrics, reason)`` for v3 and legacy results.
+
+    ``None`` remains the timeout sentinel. The named fields are preferred for
+    v3 because ``ActionResult`` deliberately has three values; treating it as
+    the old ``(action, metrics)`` tuple raises ``ValueError`` in GUI slots.
+    """
+    if result is None:
+        return None
+    if all(hasattr(result, name) for name in ("action", "metrics", "reason")):
+        return result.action, result.metrics, result.reason
+    if isinstance(result, (tuple, list)) and len(result) == 2:
+        return result[0], result[1], REASON_ACTION
+    raise TypeError("unsupported action result: %r" % (result,))
 
 
 class _Sentinel:
@@ -46,6 +63,7 @@ class _Sentinel:
 
 
 DISCONNECTED = _Sentinel()
+RESET_REQUESTED = _Sentinel()
 
 
 class AIGymServer:
@@ -117,6 +135,9 @@ class AIGymServer:
             return False
 
         self.server_socket = sock
+        # Port 0 is useful for isolated worker processes and tests; retain the
+        # kernel-assigned port so readiness metadata can advertise it.
+        self.port = int(sock.getsockname()[1])
         self.is_running = True
         self._drain_mailbox()
         self._server_thread = threading.Thread(target=self._run_server, daemon=True)
@@ -318,6 +339,10 @@ class AIGymServer:
                         self._send_error("reset_failed", str(exc))
                         return
                 self._drain_mailbox()
+                # Wake an engine currently blocked waiting for the next action;
+                # it must publish the reset state instead of applying a stale
+                # pre-reset action.
+                self._push(RESET_REQUESTED)
                 self._send_json({"type": "ack", "command": "reset"})
             else:
                 self._send_error("unknown_command", f"unsupported command {command!r}")
@@ -375,5 +400,7 @@ class AIGymServer:
             if item is DISCONNECTED:
                 reason = REASON_STOPPED if self._stop_requested else REASON_DISCONNECTED
                 return ActionResult(None, None, reason)
+            if item is RESET_REQUESTED:
+                return ActionResult(None, None, REASON_RESET)
             action, metrics = item
             return ActionResult(action, metrics, REASON_ACTION)
