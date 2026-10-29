@@ -584,7 +584,7 @@ class SimulationManager:
             
             # 4. Batch measurement through GPU pipeline
             ranging_results = channel.measure_distance_batch(
-                true_distances, is_los_array, anchor_positions=[a.position for a in anchors]
+                true_distances, is_los_array, anchor_positions=[a.position for a in anchors], compute_stats=bool(getattr(self.parent, 'cir_window', None) and self.parent.cir_window.isVisible()), include_cir=bool(getattr(self.parent, 'cir_window', None) and self.parent.cir_window.isVisible())
             )
             
             # 5. Pack into expected result format

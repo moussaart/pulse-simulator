@@ -58,7 +58,7 @@ class AlgorithmLoader:
                 for name, obj in inspect.getmembers(module):
                     if (inspect.isclass(obj) and 
                         issubclass(obj, BaseLocalizationAlgorithm) and 
-                        obj is not BaseLocalizationAlgorithm):
+                        obj is not BaseLocalizationAlgorithm and obj.__module__ == module.__name__):
                         
                         try:
                             # Instantiate to get the name property, or checking if it's an abstract class?

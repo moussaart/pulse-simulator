@@ -131,20 +131,30 @@ class SimulatorEnvironment:
             self.tag.position.x += self._step_rng.normal(0, 0.05)
             self.tag.position.y += self._step_rng.normal(0, 0.05)
 
-            # 2-3. Per-anchor: LOS check then measurement
-            for a in self.anchors:
-                # LOS check iterates through ALL nlos_zones
-                self.channel.update_los_condition(a.position, self.tag.position)
-                is_los = self.channel.is_los
-
-                true_dist = a.position.distance_to(self.tag.position)
-                # measure_distance calls measure_distance_detailed internally
-                # (link budget → CIR generation → ToA detection → error model)
-                self.channel.measure_distance(
-                    true_distance=true_dist,
-                    is_los=is_los,
-                    anchor_pos=a.position,
+            # 2-3. GPU batch LOS check + GPU batch measurement when available
+            if GPU_AVAILABLE and len(self.anchors) >= 2:
+                tag_xy = (self.tag.position.x, self.tag.position.y)
+                is_los_array = batch_los_check_gpu(
+                    self.anchor_pos_array, tag_xy, self.channel.nlos_zones, self.channel.moving_nlos_zones
                 )
+                true_dists = np.sqrt(np.sum((self.anchor_pos_array - np.array(tag_xy)) ** 2, axis=1))
+                self.channel.measure_distance_batch(
+                    true_dists,
+                    is_los_array,
+                    anchor_positions=[a.position for a in self.anchors],
+                    compute_stats=False,
+                    include_cir=False,
+                )
+            else:
+                for a in self.anchors:
+                    self.channel.update_los_condition(a.position, self.tag.position)
+                    is_los = self.channel.is_los
+                    true_dist = a.position.distance_to(self.tag.position)
+                    self.channel.measure_distance(
+                        true_distance=true_dist,
+                        is_los=is_los,
+                        anchor_pos=a.position,
+                    )
         else:
             # Mock: O(anchors × obstacles)
             for _ in self.anchors:
@@ -157,8 +167,16 @@ class SimulatorEnvironment:
         if PULSE_AVAILABLE:
             self.tag.position.x += self._step_rng.normal(0, 0.05)
             self.tag.position.y += self._step_rng.normal(0, 0.05)
-            for a in self.anchors:
-                self.channel.update_los_condition(a.position, self.tag.position)
+            if GPU_AVAILABLE and len(self.anchors) >= 2:
+                batch_los_check_gpu(
+                    self.anchor_pos_array,
+                    (self.tag.position.x, self.tag.position.y),
+                    self.channel.nlos_zones,
+                    self.channel.moving_nlos_zones,
+                )
+            else:
+                for a in self.anchors:
+                    self.channel.update_los_condition(a.position, self.tag.position)
 
 
 # ==============================================================================

@@ -67,7 +67,7 @@ class GPUConfig:
     device_id: int = 0            # CUDA device index
     memory_limit: Optional[int] = None  # GPU memory limit in bytes (None = no limit)
     batch_size: int = 1024        # Default batch size for GPU operations
-    min_array_size: int = 100     # Minimum array size to benefit from GPU transfer
+    min_array_size: int = 64      # Minimum array size to benefit from GPU transfer
     force_gpu: bool = False       # Force GPU for all operations regardless of array size
     n_streams: int = 4            # Number of CUDA streams for concurrent execution
     warmup_bytes: int = 64 * 1024 * 1024  # 64 MB warm-up allocation
@@ -246,6 +246,18 @@ class GPUManager:
     def cupy(self):
         """Direct access to cupy module, or None if not available"""
         return self._cupy
+
+    @property
+    def _device_name(self) -> str:
+        """Compatibility property for device name."""
+        return self._gpu_info.device_name
+
+    @property
+    def _device_memory(self) -> Optional[int]:
+        """Compatibility property for total device memory in bytes."""
+        if not self._gpu_available:
+            return None
+        return int(self._gpu_info.total_memory_mb * 1024 * 1024)
     
     def configure(self, **kwargs):
         """Update GPU configuration. Takes same kwargs as GPUConfig fields."""
@@ -267,23 +279,30 @@ class GPUManager:
     # Array Module & Data Transfer
     # ─────────────────────────────────────────────────────────────────────────
     
-    def get_array_module(self) -> Any:
+    def get_array_module(self, use_gpu: Optional[bool] = None) -> Any:
         """
         Get the array module to use (CuPy for GPU, NumPy for CPU).
+        
+        Args:
+            use_gpu: Optional override. When False, always returns numpy.
         
         Returns:
             cupy if GPU is available, numpy otherwise
         """
+        if use_gpu is False:
+            return np
         if self._gpu_available and self._cupy is not None:
             return self._cupy
         return np
     
-    def to_gpu(self, array: np.ndarray) -> Any:
+    def to_gpu(self, array: Any) -> Any:
         """
         Transfer a NumPy array to GPU memory.
         Returns GPU array if available, otherwise returns the input unchanged.
         """
         if self._gpu_available and self._cupy is not None:
+            if hasattr(array, '__cuda_array_interface__'):
+                return array
             if isinstance(array, np.ndarray):
                 return self._cupy.asarray(array)
         return array
@@ -293,12 +312,14 @@ class GPUManager:
         Transfer an array to CPU memory (NumPy).
         Works with both CuPy and NumPy arrays.
         """
+        if isinstance(array, np.ndarray):
+            return array
         if self._gpu_available and self._cupy is not None:
             if hasattr(array, 'get'):
                 return array.get()
         return np.asarray(array)
     
-    def to_gpu_batch(self, *arrays: np.ndarray) -> Tuple:
+    def to_gpu_batch(self, *arrays: Any) -> Tuple:
         """
         Transfer multiple NumPy arrays to GPU in one call.
         
@@ -309,8 +330,11 @@ class GPUManager:
             Tuple of GPU arrays (or original arrays if GPU not available)
         """
         if self._gpu_available and self._cupy is not None:
-            return tuple(self._cupy.asarray(a) if isinstance(a, np.ndarray) else a 
-                        for a in arrays)
+            cp = self._cupy
+            return tuple(
+                a if hasattr(a, '__cuda_array_interface__') else (cp.asarray(a) if isinstance(a, np.ndarray) else a)
+                for a in arrays
+            )
         return arrays
     
     def to_cpu_batch(self, *arrays) -> Tuple[np.ndarray, ...]:
@@ -416,12 +440,12 @@ class GPUManager:
 gpu_manager = GPUManager()
 
 
-def get_array_module():
+def get_array_module(use_gpu: Optional[bool] = None):
     """Get the array module (cupy or numpy) based on GPU availability"""
-    return gpu_manager.get_array_module()
+    return gpu_manager.get_array_module(use_gpu=use_gpu)
 
 
-def to_gpu(array: np.ndarray):
+def to_gpu(array: Any):
     """Transfer array to GPU if available"""
     return gpu_manager.to_gpu(array)
 
@@ -431,7 +455,7 @@ def to_cpu(array) -> np.ndarray:
     return gpu_manager.to_cpu(array)
 
 
-def to_gpu_batch(*arrays: np.ndarray):
+def to_gpu_batch(*arrays: Any):
     """Transfer multiple arrays to GPU if available"""
     return gpu_manager.to_gpu_batch(*arrays)
 

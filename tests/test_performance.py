@@ -4,7 +4,7 @@ Performance Benchmark Suite for PULSE Simulator
 Measures throughput and timing for the core simulation components:
 - LOS checks (GPU batch vs sequential)
 - Distance computation (vectorized vs per-anchor)
-- Measurement pipeline
+- Measurement pipeline (GPU batch vs sequential)
 - Anchor visualization data prep
 
 Run with:
@@ -180,28 +180,37 @@ class TestMeasurementPerformance:
     
     @pytest.mark.parametrize("n_anchors", ANCHOR_COUNTS)
     def test_channel_measurement(self, n_anchors):
-        """Full channel model measurement (includes CIR generation)."""
+        """Full channel model measurement (GPU batch vs sequential)."""
         anchors = _create_anchors(n_anchors)
         tag = UWBTag(Position(1.0, 2.0))
         tag.id = "T1"
         channel = UWBChannelModel()
+        anchor_pos_array = np.array([[a.position.x, a.position.y] for a in anchors], dtype=np.float64)
+        anchor_positions = [a.position for a in anchors]
+        tag_xy = np.array([tag.position.x, tag.position.y])
+        true_distances = np.sqrt(np.sum((anchor_pos_array - tag_xy) ** 2, axis=1))
+        is_los_array = np.ones(n_anchors, dtype=bool)
         
-        # Warmup
-        for a in anchors[:min(2, n_anchors)]:
-            channel.update_los_condition(a.position, tag.position)
-            channel.measure_distance_detailed(a.position.distance_to(tag.position), tag.position)
+        # Warmup GPU batch
+        channel.measure_distance_batch(
+            true_distances, is_los_array, anchor_positions=anchor_positions,
+            compute_stats=False, include_cir=False
+        )
         
+        iters = max(1, N_ITERATIONS // max(1, n_anchors // 4))
         t0 = time.perf_counter()
-        for _ in range(max(1, N_ITERATIONS // n_anchors)):
-            for a in anchors:
-                channel.update_los_condition(a.position, tag.position)
-                channel.measure_distance_detailed(a.position.distance_to(tag.position), tag.position)
+        for _ in range(iters):
+            results = channel.measure_distance_batch(
+                true_distances, is_los_array, anchor_positions=anchor_positions,
+                compute_stats=False, include_cir=False
+            )
         elapsed = time.perf_counter() - t0
         
-        iters = max(1, N_ITERATIONS // n_anchors)
         per_frame_ms = (elapsed / iters) * 1e3
         per_anchor_us = (elapsed / (iters * n_anchors)) * 1e6
-        print(f"\n  Channel measurement: {n_anchors} anchors = {per_frame_ms:.1f} ms/frame, {per_anchor_us:.1f} µs/anchor")
+        print(f"\n  Batch channel measurement ({'GPU' if gpu_manager.available else 'CPU'}): "
+              f"{n_anchors} anchors = {per_frame_ms:.2f} ms/frame, {per_anchor_us:.1f} µs/anchor")
+        assert len(results) == n_anchors
 
 
 class TestAnchorPositionCache:

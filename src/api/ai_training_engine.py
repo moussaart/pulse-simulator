@@ -424,7 +424,7 @@ class AITrainingEngine:
         tag_xy = np.array([agent.tag.position.x, agent.tag.position.y])
         true_distances = np.sqrt(np.sum((self._anchor_positions_array - tag_xy) ** 2, axis=1))
         ranging_results = channel.measure_distance_batch(
-            true_distances, is_los_array, anchor_positions=[a.position for a in anchors]
+            true_distances, is_los_array, anchor_positions=[a.position for a in anchors], compute_stats=False, include_cir=False
         )
         records: List[Optional[Dict[str, Any]]] = []
         for i, (anchor, rr) in enumerate(zip(anchors, ranging_results)):
@@ -440,6 +440,74 @@ class AITrainingEngine:
             })
         self.last_backend = "gpu"
         return records
+
+    def _measure_multi_agent_batch(self) -> Optional[List[List[Optional[Dict[str, Any]]]]]:
+        """Batch LOS checks and UWB ranging across all M agents × N anchors in one GPU launch."""
+        m_agents = len(self.agents)
+        n_anchors = len(self.anchors)
+        if m_agents <= 1 or n_anchors < 2:
+            return None
+
+        from src.core.parallel.geometry_kernels import batch_los_check_multi_tag_gpu
+
+        channel0 = self.agents[0].channel
+        for zone in getattr(channel0, "moving_nlos_zones", ()) or ():
+            try:
+                zone.update_position(time.time())
+            except Exception:
+                pass
+
+        tag_positions = np.array(
+            [[ag.tag.position.x, ag.tag.position.y] for ag in self.agents],
+            dtype=np.float64,
+        )
+        los_matrix = batch_los_check_multi_tag_gpu(
+            anchor_positions=self._anchor_positions_array,
+            tag_positions=tag_positions,
+            nlos_zones=channel0.nlos_zones,
+            moving_nlos_zones=channel0.moving_nlos_zones,
+        )
+        # Update each agent's channel state for compatibility
+        anchor0_pos = self.anchors[0].position
+        for ag in self.agents:
+            ag.channel.update_los_condition(anchor0_pos, ag.tag.position)
+
+        # Compute (M, N) true distances vectorized
+        diff = self._anchor_positions_array[np.newaxis, :, :] - tag_positions[:, np.newaxis, :]
+        dist_matrix = np.sqrt(np.sum(diff ** 2, axis=2))
+
+        flat_dists = dist_matrix.ravel()
+        flat_los = los_matrix.ravel()
+        anchor_pos_list = [a.position for a in self.anchors] * m_agents
+
+        ranging_results = channel0.measure_distance_batch(
+            flat_dists,
+            flat_los,
+            anchor_positions=anchor_pos_list,
+            compute_stats=False,
+            include_cir=False,
+        )
+
+        all_records: List[List[Optional[Dict[str, Any]]]] = []
+        for m in range(m_agents):
+            base = m * n_anchors
+            agent_records: List[Optional[Dict[str, Any]]] = []
+            for i, anchor in enumerate(self.anchors):
+                rr = ranging_results[base + i]
+                distance = float(rr.measured_distance)
+                if not np.isfinite(distance) or distance < 0:
+                    agent_records.append(None)
+                    continue
+                agent_records.append({
+                    "anchor_id": anchor.id,
+                    "distance": distance,
+                    "is_los": bool(los_matrix[m, i]),
+                    "true_distance": float(dist_matrix[m, i]),
+                })
+            all_records.append(agent_records)
+
+        self.last_backend = "gpu"
+        return all_records
 
     def measure_all(self, agent: "TrainingAgentSim") -> List[Optional[Dict[str, Any]]]:
         """Both main backends, with the same fallback rule."""
@@ -644,13 +712,28 @@ class AITrainingEngine:
             for i in range(len(self.agents))
         ]
 
+        # Multi-agent GPU batch fast path (when > 1 agent and GPU is enabled)
+        multi_batch_records = None
+        if len(self.agents) > 1 and self.config.allow_gpu and gpu_manager.available and len(self.anchors) >= 2:
+            for agent in self.agents:
+                agent.advance_motion()
+            try:
+                multi_batch_records = self._measure_multi_agent_batch()
+            except Exception:
+                self.last_backend = "cpu-fallback"
+                multi_batch_records = None
+
         per_agent: List[Dict[str, Any]] = []
         for i, agent in enumerate(self.agents):
             action = normalised[i]
 
             # 1. clock, 2. motion (+ IMU), 3. LOS, 4. ranging
-            agent.advance_motion()
-            raw_records = self.measure_all(agent)
+            if multi_batch_records is not None:
+                raw_records = multi_batch_records[i]
+            else:
+                if not (len(self.agents) > 1 and self.config.allow_gpu and gpu_manager.available and len(self.anchors) >= 2):
+                    agent.advance_motion()
+                raw_records = self.measure_all(agent)
 
             if not self._account_measurement(agent, raw_records):
                 # Same as the main loop: an unusable frame advances the clock and

@@ -23,6 +23,9 @@ logger = logging.getLogger(__name__)
 # ─────────────────────────────────────────────────────────────────────────────
 
 _los_kernel = None
+_static_edges_cache_key = None
+_static_edges_cpu: Optional[np.ndarray] = None
+_static_edges_gpu = None
 
 
 def _get_los_kernel():
@@ -51,10 +54,9 @@ void check_los_batch(
     const int n_anchors,
     const int n_edges
 ) {
-    // 2D grid: blockIdx.x = anchor index, threadIdx.x = edge index
+    // 2D grid: blockIdx.x = anchor/link index, threadIdx.x = edge index
     int aid = blockIdx.x;
-    int eid = threadIdx.x;
-    if (aid >= n_anchors || eid >= n_edges) return;
+    if (aid >= n_anchors) return;
 
     // Segment A-B: anchor-tag link
     double ax = anchor_segs[aid * 4 + 0];
@@ -62,20 +64,27 @@ void check_los_batch(
     double bx = anchor_segs[aid * 4 + 2];
     double by = anchor_segs[aid * 4 + 3];
 
-    // Segment C-D: zone edge
-    double cx = zone_edges[eid * 4 + 0];
-    double cy = zone_edges[eid * 4 + 1];
-    double dx = zone_edges[eid * 4 + 2];
-    double dy = zone_edges[eid * 4 + 3];
+    int hit = 0;
+    for (int eid = threadIdx.x; eid < n_edges; eid += blockDim.x) {
+        // Segment C-D: zone edge
+        double cx = zone_edges[eid * 4 + 0];
+        double cy = zone_edges[eid * 4 + 1];
+        double dx = zone_edges[eid * 4 + 2];
+        double dy = zone_edges[eid * 4 + 3];
 
-    // CCW orientation test: ccw(P,Q,R) = (R.y-P.y)*(Q.x-P.x) > (Q.y-P.y)*(R.x-P.x)
-    int d1 = ((dy - ay) * (bx - ax)) > ((by - ay) * (dx - ax));
-    int d2 = ((cy - ay) * (bx - ax)) > ((by - ay) * (cx - ax));
-    int d3 = ((by - cy) * (dx - cx)) > ((dy - cy) * (bx - cx));
-    int d4 = ((ay - cy) * (dx - cx)) > ((dy - cy) * (ax - cx));
+        // CCW orientation test: ccw(P,Q,R) = (R.y-P.y)*(Q.x-P.x) > (Q.y-P.y)*(R.x-P.x)
+        int d1 = ((dy - ay) * (bx - ax)) > ((by - ay) * (dx - ax));
+        int d2 = ((cy - ay) * (bx - ax)) > ((by - ay) * (cx - ax));
+        int d3 = ((by - cy) * (dx - cx)) > ((dy - cy) * (bx - cx));
+        int d4 = ((ay - cy) * (dx - cx)) > ((dy - cy) * (ax - cx));
 
-    // Segments intersect iff d1 != d2 AND d3 != d4
-    if (d1 != d2 && d3 != d4) {
+        // Segments intersect iff d1 != d2 AND d3 != d4
+        if (d1 != d2 && d3 != d4) {
+            hit = 1;
+            break;
+        }
+    }
+    if (hit) {
         atomicOr(&is_blocked[aid], 1);
     }
 }
@@ -88,40 +97,99 @@ void check_los_batch(
     return _los_kernel
 
 
+def _make_static_zones_key(nlos_zones: list) -> tuple:
+    """Create a fast cache key for static NLOS zones."""
+    key_parts = []
+    for z in nlos_zones:
+        if hasattr(z, 'x1'):
+            key_parts.append((id(z), z.x1, z.y1, z.x2, z.y2))
+        elif hasattr(z, 'points'):
+            pts = z.points
+            first_pt = tuple(pts[0]) if pts else ()
+            last_pt = tuple(pts[-1]) if pts else ()
+            key_parts.append((id(z), len(pts), first_pt, last_pt))
+        else:
+            key_parts.append((id(z),))
+    return tuple(key_parts)
+
+
 def _extract_zone_edges(nlos_zones, moving_nlos_zones) -> np.ndarray:
     """
     Flatten all NLOS zone boundaries into an (N_edges, 4) array.
     Each row is (x1, y1, x2, y2) for one edge segment.
 
     Handles NLOSZone (rect), PolygonNLOSZone, and MovingNLOSZone.
+    Uses a cache for static NLOS zones to avoid per-frame reconstruction.
     """
+    global _static_edges_cache_key, _static_edges_cpu, _static_edges_gpu
+
+    if not nlos_zones and not moving_nlos_zones:
+        return np.empty((0, 4), dtype=np.float64)
+
     from src.core.uwb.Nlos_zones import NLOSZone, PolygonNLOSZone, MovingNLOSZone
 
-    edges = []
-    for zone in nlos_zones:
-        if isinstance(zone, NLOSZone):
-            # Rectangle → 4 edges
-            x1, y1, x2, y2 = zone.x1, zone.y1, zone.x2, zone.y2
-            edges.append([x1, y1, x2, y1])  # bottom
-            edges.append([x2, y1, x2, y2])  # right
-            edges.append([x2, y2, x1, y2])  # top
-            edges.append([x1, y2, x1, y1])  # left
-        elif isinstance(zone, PolygonNLOSZone):
-            pts = zone.points
-            for i in range(len(pts)):
-                p1, p2 = pts[i], pts[(i + 1) % len(pts)]
-                edges.append([p1[0], p1[1], p2[0], p2[1]])
+    # Check static zone cache
+    if nlos_zones:
+        key = _make_static_zones_key(nlos_zones)
+        if key == _static_edges_cache_key and _static_edges_cpu is not None:
+            static_arr = _static_edges_cpu
+        else:
+            static_edges = []
+            for zone in nlos_zones:
+                if isinstance(zone, NLOSZone):
+                    x1, y1, x2, y2 = zone.x1, zone.y1, zone.x2, zone.y2
+                    static_edges.append([x1, y1, x2, y1])  # bottom
+                    static_edges.append([x2, y1, x2, y2])  # right
+                    static_edges.append([x2, y2, x1, y2])  # top
+                    static_edges.append([x1, y2, x1, y1])  # left
+                elif isinstance(zone, PolygonNLOSZone):
+                    pts = zone.points
+                    n_pts = len(pts)
+                    for i in range(n_pts):
+                        p1, p2 = pts[i], pts[(i + 1) % n_pts]
+                        static_edges.append([p1[0], p1[1], p2[0], p2[1]])
+            static_arr = (
+                np.array(static_edges, dtype=np.float64)
+                if static_edges else np.empty((0, 4), dtype=np.float64)
+            )
+            _static_edges_cache_key = key
+            _static_edges_cpu = static_arr
+            _static_edges_gpu = None
+    else:
+        static_arr = np.empty((0, 4), dtype=np.float64)
 
+    if not moving_nlos_zones:
+        return static_arr
+
+    moving_edges = []
     for zone in moving_nlos_zones:
         if isinstance(zone, MovingNLOSZone):
             pts = zone.get_points() if hasattr(zone, 'get_points') else zone.points
-            for i in range(len(pts)):
-                p1, p2 = pts[i], pts[(i + 1) % len(pts)]
-                edges.append([p1[0], p1[1], p2[0], p2[1]])
+            n_pts = len(pts)
+            for i in range(n_pts):
+                p1, p2 = pts[i], pts[(i + 1) % n_pts]
+                moving_edges.append([p1[0], p1[1], p2[0], p2[1]])
 
-    if not edges:
-        return np.empty((0, 4), dtype=np.float64)
-    return np.array(edges, dtype=np.float64)
+    if not moving_edges:
+        return static_arr
+
+    moving_arr = np.array(moving_edges, dtype=np.float64)
+    if len(static_arr) == 0:
+        return moving_arr
+    return np.vstack((static_arr, moving_arr))
+
+
+def _get_zone_edges_gpu(nlos_zones, moving_nlos_zones, zone_edges_cpu: np.ndarray):
+    """Return zone_edges on GPU, reusing the cached GPU buffer for static zones."""
+    global _static_edges_gpu
+    cp = gpu_manager.cupy
+    if cp is None:
+        return zone_edges_cpu
+    if not moving_nlos_zones and _static_edges_cpu is zone_edges_cpu:
+        if _static_edges_gpu is None:
+            _static_edges_gpu = cp.asarray(zone_edges_cpu)
+        return _static_edges_gpu
+    return cp.asarray(zone_edges_cpu)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -150,6 +218,18 @@ def batch_los_check_gpu(
     if n_anchors == 0:
         return np.array([], dtype=bool)
 
+    # Fast path when no obstacles exist
+    if not nlos_zones and not moving_nlos_zones:
+        return np.ones(n_anchors, dtype=bool)
+
+    # Extract zone edges (cached for static zones)
+    zone_edges = _extract_zone_edges(nlos_zones, moving_nlos_zones)
+    n_edges = len(zone_edges)
+
+    # If no zone edges → everything is LOS
+    if n_edges == 0:
+        return np.ones(n_anchors, dtype=bool)
+
     # Build per-anchor segments: anchor_pos → tag_pos
     tag_x, tag_y = float(tag_position[0]), float(tag_position[1])
     anchor_segs = np.empty((n_anchors, 4), dtype=np.float64)
@@ -158,21 +238,13 @@ def batch_los_check_gpu(
     anchor_segs[:, 2] = tag_x                   # tag x
     anchor_segs[:, 3] = tag_y                   # tag y
 
-    # Extract zone edges
-    zone_edges = _extract_zone_edges(nlos_zones, moving_nlos_zones)
-    n_edges = len(zone_edges)
-
-    # If no zones → everything is LOS
-    if n_edges == 0:
-        return np.ones(n_anchors, dtype=bool)
-
     # Try GPU kernel
     kernel = _get_los_kernel()
-    if kernel is not None and gpu_manager.should_use_gpu(n_anchors * n_edges):
+    if kernel is not None and gpu_manager.available and (n_anchors * n_edges >= 16 or gpu_manager.config.force_gpu):
         cp = gpu_manager.cupy
         try:
             segs_gpu = cp.asarray(anchor_segs)
-            edges_gpu = cp.asarray(zone_edges)
+            edges_gpu = _get_zone_edges_gpu(nlos_zones, moving_nlos_zones, zone_edges)
             is_blocked = cp.zeros(n_anchors, dtype=cp.int32)
 
             # Grid: one block per anchor, threads = edges (pad to warp of 32)
@@ -190,6 +262,72 @@ def batch_los_check_gpu(
 
     # CPU fallback — vectorized NumPy (still faster than Python loops)
     return _batch_los_check_numpy(anchor_segs, zone_edges)
+
+
+def batch_los_check_multi_tag_gpu(
+    anchor_positions: np.ndarray,
+    tag_positions: np.ndarray,
+    nlos_zones: list,
+    moving_nlos_zones: list
+) -> np.ndarray:
+    """
+    Check LOS condition for M tags × N anchors simultaneously in a single GPU launch.
+
+    Args:
+        anchor_positions: (N_anchors, 2) array of anchor [x, y] positions
+        tag_positions: (M_tags, 2) array of tag [x, y] positions
+        nlos_zones: List of static NLOSZone / PolygonNLOSZone objects
+        moving_nlos_zones: List of MovingNLOSZone objects
+
+    Returns:
+        Boolean NumPy array (M_tags, N_anchors): True = LOS, False = NLOS
+    """
+    tag_positions = np.asarray(tag_positions, dtype=np.float64)
+    if tag_positions.ndim == 1:
+        return batch_los_check_gpu(
+            anchor_positions, (float(tag_positions[0]), float(tag_positions[1])),
+            nlos_zones, moving_nlos_zones
+        )[np.newaxis, :]
+
+    m_tags = tag_positions.shape[0]
+    n_anchors = len(anchor_positions)
+    if m_tags == 0 or n_anchors == 0:
+        return np.empty((m_tags, n_anchors), dtype=bool)
+
+    if not nlos_zones and not moving_nlos_zones:
+        return np.ones((m_tags, n_anchors), dtype=bool)
+
+    zone_edges = _extract_zone_edges(nlos_zones, moving_nlos_zones)
+    n_edges = len(zone_edges)
+    if n_edges == 0:
+        return np.ones((m_tags, n_anchors), dtype=bool)
+
+    total_links = m_tags * n_anchors
+    anchor_segs = np.empty((m_tags, n_anchors, 4), dtype=np.float64)
+    anchor_segs[:, :, 0] = anchor_positions[np.newaxis, :, 0]
+    anchor_segs[:, :, 1] = anchor_positions[np.newaxis, :, 1]
+    anchor_segs[:, :, 2] = tag_positions[:, np.newaxis, 0]
+    anchor_segs[:, :, 3] = tag_positions[:, np.newaxis, 1]
+    flat_segs = anchor_segs.reshape(total_links, 4)
+
+    kernel = _get_los_kernel()
+    if kernel is not None and gpu_manager.available and (total_links * n_edges >= 16 or gpu_manager.config.force_gpu):
+        cp = gpu_manager.cupy
+        try:
+            segs_gpu = cp.asarray(flat_segs)
+            edges_gpu = _get_zone_edges_gpu(nlos_zones, moving_nlos_zones, zone_edges)
+            is_blocked = cp.zeros(total_links, dtype=cp.int32)
+
+            threads_per_block = min(1024, max(32, ((n_edges + 31) // 32) * 32))
+            kernel((total_links,), (threads_per_block,),
+                   (segs_gpu, edges_gpu, is_blocked,
+                    np.int32(total_links), np.int32(n_edges)))
+
+            return (~to_cpu(is_blocked).astype(bool)).reshape(m_tags, n_anchors)
+        except Exception as e:
+            logger.warning(f"GPU multi-tag LOS check failed, falling back to CPU: {e}")
+
+    return _batch_los_check_numpy(flat_segs, zone_edges).reshape(m_tags, n_anchors)
 
 
 def _batch_los_check_numpy(

@@ -180,20 +180,19 @@ class UWBChannelModel:
         
         return total_loss_db, breakdown
 
-    def generate_unified_cir(self, distance: float, is_los: bool, return_on_device: bool = False, anchor_pos: Optional[Position] = None, avg_loss_db: Optional[float] = None) -> Tuple[np.ndarray, np.ndarray, float]:
+    def generate_sv_multipath_params(
+        self,
+        distance: float,
+        is_los: bool,
+        anchor_pos: Optional[Position] = None,
+        avg_loss_db: Optional[float] = None
+    ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, float, float, float, int]:
         """
-        Generate the Unified UWB Channel Impulse Response h(t, f).
-        
-        Combines S-V multipath structure with frequency-dependent amplitude.
-        Uses vectorized NumPy operations for multipath parameter generation
-        (replaces nested Python for-loops) and GPU-accelerated pulse superposition.
-        
-        h(t) = Sum_k Sum_l alpha_{k,l} * exp(j*phi_{k,l}) * delta(t - T_k - tau_{k,l})
-        
+        Generate S-V multipath component delays, amplitudes, phases, and time-grid metadata
+        without materializing the full time vector on CPU.
+
         Returns:
-            times: Time vector
-            h_t: Complex impulse response
-            first_path_delay: Delay of the first arriving path
+            Tuple of (path_delays, path_amplitudes, path_phases, t0, t_start, dt, n_samples)
         """
         params = self.current_sv_params
         Lambda = params.cluster_arrival_rate
@@ -204,8 +203,6 @@ class UWBChannelModel:
         t0 = distance / self.c  # Direct path delay
         
         # 1. Generate Cluster Arrival Times (Poisson Process) — VECTORIZED
-        # Environment-Aware Logic: 
-        # Increase number and arrival rate of clusters based on total and nearby obstacles
         base_lambda_clusters = 5.0
         
         # Global contribution: more obstacles in the room -> more background scattering
@@ -214,23 +211,21 @@ class UWBChannelModel:
         
         # Local contribution: obstacles near the anchor -> more early reflections/clusters
         local_boost = 0.0
-        pos_for_local = anchor_pos or self._current_anchor_pos
-        if pos_for_local:
-            nearby_count = self._count_nearby_obstacles(pos_for_local, radius=4.0)
-            local_boost = nearby_count * 1.5
+        if total_obstacles > 0:
+            pos_for_local = anchor_pos or self._current_anchor_pos
+            if pos_for_local:
+                nearby_count = self._count_nearby_obstacles(pos_for_local, radius=4.0)
+                local_boost = nearby_count * 1.5
             
         mean_clusters = base_lambda_clusters + global_boost + local_boost
         
         # Also increase the cluster arrival rate (Lambda) when many obstacles exist
-        # This makes the clusters arrive faster (more dense reflections)
         if total_obstacles > 0 or local_boost > 0:
             env_factor = 1.0 + 0.05 * (total_obstacles + local_boost)
             Lambda *= env_factor
-            # Also slightly slow down decay in complex environments (scattering lingers)
             Gamma *= np.sqrt(env_factor) 
 
         n_clusters = max(1, np.random.poisson(mean_clusters))
-        # Generate all inter-cluster intervals at once
         if n_clusters > 1:
             cluster_intervals = np.random.exponential(1/Lambda, size=n_clusters - 1)
             T = np.empty(n_clusters)
@@ -241,7 +236,6 @@ class UWBChannelModel:
             T = np.array([t0])
         
         # 2. Generate All Ray Parameters — VECTORIZED
-        # Pre-compute number of rays per cluster
         n_rays_per_cluster = np.maximum(1, np.random.poisson(5, size=n_clusters))
         total_rays = int(np.sum(n_rays_per_cluster))
         
@@ -256,23 +250,18 @@ class UWBChannelModel:
         all_fading = np.random.rayleigh(scale=1.0, size=total_rays)
         all_phases = np.random.uniform(0, 2*np.pi, size=total_rays)
         
-        # Build path arrays — FULLY VECTORIZED (no Python for-loop)
         # Expand cluster onset times to per-ray arrays via np.repeat
-        cluster_indices = np.repeat(np.arange(n_clusters), n_rays_per_cluster)
         T_per_ray = np.repeat(T, n_rays_per_cluster)
         
         # Cluster decay scale per ray
         cluster_scales = np.exp(-(T_per_ray - t0) / Gamma)
         
-        # Per-cluster cumulative ray delays:
-        # Zero-out first ray interval in each cluster, then cumsum within segments
+        # Per-cluster cumulative ray delays
         all_ray_intervals_copy = all_ray_intervals.copy()
-        # Find first ray index in each cluster using cumsum of n_rays_per_cluster
         cluster_starts = np.zeros(n_clusters, dtype=np.intp)
         np.cumsum(n_rays_per_cluster[:-1], out=cluster_starts[1:])
         all_ray_intervals_copy[cluster_starts] = 0.0
         
-        # Global cumsum then subtract per-cluster baseline to get within-cluster cumsum
         global_cumsum = np.cumsum(all_ray_intervals_copy)
         cluster_baselines = np.repeat(
             np.concatenate(([0.0], global_cumsum[cluster_starts[1:] - 1])) if n_clusters > 1
@@ -296,15 +285,44 @@ class UWBChannelModel:
         path_amplitudes = path_amplitudes[sort_idx]
         path_phases = path_phases[sort_idx]
         
-        # Create time vector
+        # Time grid parameters
         oversample_factor = 16
-        dt = 1 / (oversample_factor * self.uwb_params.bandwidth) 
+        dt = 1.0 / (oversample_factor * self.uwb_params.bandwidth)
         if len(path_delays) > 0:
-            duration = path_delays[-1] - path_delays[0] + 50e-9
+            duration = float(path_delays[-1] - path_delays[0] + 50e-9)
+            t_start = float(path_delays[0] - 5e-9)
         else:
             duration = 100e-9
-            
-        t_vector = np.arange(0, duration, dt) + path_delays[0] - 5e-9
+            t_start = float(t0 - 5e-9)
+        n_samples = max(1, int(np.ceil(duration / dt)))
+        
+        return path_delays, path_amplitudes, path_phases, float(t0), t_start, float(dt), n_samples
+
+    def generate_unified_cir(self, distance: float, is_los: bool, return_on_device: bool = False, anchor_pos: Optional[Position] = None, avg_loss_db: Optional[float] = None) -> Tuple[np.ndarray, np.ndarray, float]:
+        """
+        Generate the Unified UWB Channel Impulse Response h(t, f).
+        
+        Combines S-V multipath structure with frequency-dependent amplitude.
+        Uses vectorized NumPy operations for multipath parameter generation
+        (replaces nested Python for-loops) and GPU-accelerated pulse superposition.
+        
+        h(t) = Sum_k Sum_l alpha_{k,l} * exp(j*phi_{k,l}) * delta(t - T_k - tau_{k,l})
+        
+        Returns:
+            times: Time vector
+            h_t: Complex impulse response
+            first_path_delay: Delay of the first arriving path
+        """
+        path_delays, path_amplitudes, path_phases, t0, t_start, dt, n_samples = (
+            self.generate_sv_multipath_params(
+                distance=distance,
+                is_los=is_los,
+                anchor_pos=anchor_pos,
+                avg_loss_db=avg_loss_db,
+            )
+        )
+        
+        t_vector = np.arange(n_samples, dtype=np.float64) * dt + t_start
         
         # Pulse width
         pulse_width = 1 / self.uwb_params.bandwidth
@@ -319,11 +337,8 @@ class UWBChannelModel:
             return_on_device=return_on_device
         )
         
-        # If returning on device, we should also move t_vector to device if it isn't already
-        # But vectorized_cir_pulse_superposition doesn't return t_vector. 
-        # We need to manually handle t_vector if caller expects consistent device.
         if return_on_device and gpu_manager.available:
-             t_vector = to_gpu(t_vector)
+            t_vector = to_gpu(t_vector)
             
         return t_vector, h_t, t0
     
@@ -361,13 +376,13 @@ class UWBChannelModel:
         2. Set dynamic threshold relative to peak
         3. Find first crossing.
         """
-        xp = get_array_module()
         use_gpu = gpu_manager.should_use_gpu(len(time_vector))
+        xp = get_array_module(use_gpu=use_gpu)
         
         if use_gpu:
             t_g, h_g = to_gpu(time_vector), to_gpu(h_t)
         else:
-            t_g, h_g = xp.asarray(time_vector), xp.asarray(h_t)
+            t_g, h_g = np.asarray(time_vector), np.asarray(h_t)
         
         pdp = xp.abs(h_g)**2
         peak_power = xp.max(pdp)
@@ -414,10 +429,6 @@ class UWBChannelModel:
             # Explicit zone bias
             bias += self.current_error_bias
             # Statistical bias (RMS delay spread related)
-            # bias += c * tau_rms * random_exp
-            # The full RMS delay spread (e.g. 10ns -> 3m) is too large for the *first path* bias 
-            # in typical semi-blocked NLOS. We scale it down.
-            # rho = 0.1 implies mean random bias of ~30cm for 10ns spread.
             rho = 0.1 
             bias += self.c * self.current_rms_delay_spread * rho * np.random.exponential(1.0)
             
@@ -460,11 +471,6 @@ class UWBChannelModel:
         snr_db = 10 * np.log10(snr_linear)
         
         # --- 2. Channel Impulse Response ---
-        # We generate the CIR to find the "Physical" first path time
-        # This implicitly handles Multipath effects if we use a sophisticated detector.
-        # However, for computational speed in a "simulation" loop, we often abstract this.
-        # Given the request for "Unified C.I.R", we simulate it.
-        
         # Ensure intermediate arrays stay on the GPU if GPU acceleration is active
         t_vec, h_t, t0_true = self.generate_unified_cir(
             true_distance, is_los, return_on_device=gpu_manager.available, anchor_pos=anchor_pos, avg_loss_db=path_loss_db
@@ -473,36 +479,16 @@ class UWBChannelModel:
         # --- 3. Detection ---
         toa_est_raw, detected_flag = self.detect_toa(t_vec, h_t, snr_linear)
         
-        # Refining the estimate:
-        # The 'toa_est_raw' from CIR generation already includes Multipath Bias 
-        # (if the first path is weak/blocked and we picked a later peak).
-        # In our generation 't0_true' is the start. If 'toa_est_raw' > 't0_true', that's bias.
-        
         mp_bias_observed = (toa_est_raw - t0_true) * self.c
         
         # --- 4. Add Receiver Noise Errors ---
-        # The CIR above was "clean". We now add the Noise Jitter (CRLB).
-        # We separate pure noise error for reporting.
-        
         noise_err_m, sigma_std = self.calculate_ranging_errors(true_distance, snr_linear, is_los)
-        # Note: calculate_ranging_errors adds statistical bias for NLOS too. 
-        # If our CIR method already added NLOS bias (via delays), we shouldn't double count.
-        # our CIR method generated paths starting at t0 = dist/c. 
-        # It did NOT add "NLOS Delay" to t0 itself, unless we change t0.
-        # So adding explicit NLOS bias here is correct.
         
         # Final Distance
-        # Leading Edge Detection usually triggers before the peak (which is at t0).
-        # We need to calibrate this offset.
-        # Theoretical offset for Gaussian pulse exp(-t^2/2sigma^2) at threshold 'th':
-        # t_offset = sigma * sqrt(-2 * ln(th))
-        # sigma = (1/BW) / 2.355
         pulse_width = 1.0 / self.uwb_params.bandwidth
         sigma = pulse_width / 2.355
         th = self.detection_threshold_factor
         if th < 1.0 and th > 0.0:
-            # Power P(t) = exp(- ((t-tau)/sigma)^2 )
-            # at threshold th: (t-tau) = sigma * sqrt(-ln(th))
             time_offset = sigma * np.sqrt(-1 * np.log(th))
             dist_offset = time_offset * self.c
         else:
@@ -527,13 +513,13 @@ class UWBChannelModel:
         kurtosis = 0.0
         
         if compute_stats:
-            xp = get_array_module()
             use_gpu = gpu_manager.should_use_gpu(len(h_t))
+            xp = get_array_module(use_gpu=use_gpu)
             
             if use_gpu:
                 t_g, h_g = to_gpu(t_vec), to_gpu(h_t)
             else:
-                t_g, h_g = xp.asarray(t_vec), xp.asarray(h_t)
+                t_g, h_g = np.asarray(t_vec), np.asarray(h_t)
             
             pdp = xp.abs(h_g)**2
             total_energy = xp.sum(pdp)
@@ -588,7 +574,14 @@ class UWBChannelModel:
         res = self.measure_distance_detailed(true_distance, is_los, anchor_pos=anchor_pos, compute_stats=compute_stats)
         return res.measured_distance, res.measurement_std
 
-    def measure_distance_batch(self, true_distances: np.ndarray, is_los_array: np.ndarray, anchor_positions: Optional[List[Position]] = None) -> List[RangingResult]:
+    def measure_distance_batch(
+        self,
+        true_distances: np.ndarray,
+        is_los_array: np.ndarray,
+        anchor_positions: Optional[List[Position]] = None,
+        compute_stats: bool = True,
+        include_cir: bool = True
+    ) -> List[RangingResult]:
         """
         Batch UWB ranging simulation for multiple anchors.
         Uses GPU acceleration when available for path loss and CIR generation.
@@ -597,12 +590,21 @@ class UWBChannelModel:
             true_distances: Array of true distances (N,)
             is_los_array: Boolean LOS conditions (N,)
             anchor_positions: Optional list of anchor Positions
+            compute_stats: Whether to compute channel statistics (kurtosis, delay spread)
+            include_cir: Whether to transfer full CIR waveforms to CPU
         
         Returns:
             List of RangingResult objects
         """
         from src.core.parallel.cuda_kernels import batch_measure_distances
-        return batch_measure_distances(self, true_distances, is_los_array, anchor_positions)
+        return batch_measure_distances(
+            self,
+            true_distances,
+            is_los_array,
+            anchor_positions=anchor_positions,
+            compute_stats=compute_stats,
+            include_cir=include_cir
+        )
 
     # -------------------------------------------------------------------------
     # III. Environment & Update Logic
@@ -695,9 +697,6 @@ class UWBChannelModel:
         return False
 
     def _line_intersects_rect(self, x1, y1, x2, y2, rx1, ry1, rx2, ry2):
-        # Liang-Barsky or simple checking of 4 lines
-        # Using a simple bounding box clip or 4 line segment checks
-        # Minimal implementation for saving space
         lines = [((rx1,ry1), (rx2,ry1)), ((rx2,ry1), (rx2,ry2)), ((rx2,ry2), (rx1,ry2)), ((rx1,ry2), (rx1,ry1))]
         for p1, p2 in lines:
             if self._segment_intersect((x1,y1), (x2,y2), p1, p2): return True
@@ -722,26 +721,19 @@ class UWBChannelModel:
         if model == "gaussian":
             return np.random.normal(0, base_noise)
         elif "non-centralized" in model:
-             # Just an example deviation
              return np.random.normal(base_noise * 0.5, base_noise)
         elif model == "uniform":
-             # Match variance: sigma^2 = (b-a)^2/12 -> width = sigma*sqrt(12)
-             w = base_noise * np.sqrt(3) # half width
+             w = base_noise * np.sqrt(3)
              return np.random.uniform(-w, w)
         elif model == "laplace":
-             # Variance = 2*b^2. sigma = sqrt(2)*b -> b = sigma/sqrt(2)
              b = base_noise / np.sqrt(2)
              return np.random.laplace(0, b)
         elif "mixed" in model:
-             # Mixture of two Gaussians
              if np.random.random() < 0.9:
                  return np.random.normal(0, base_noise)
              else:
-                 return np.random.normal(0, base_noise * 3) # Heavy tail
+                 return np.random.normal(0, base_noise * 3)
         elif "student" in model:
-             # t-distribution with df=3 has infinite variance? No, df>2 defines variance.
-             # Variance = df / (df-2). For df=4, var=2. std=sqrt(2).
-             # We want std=base_noise. So scale * sqrt(df/(df-2)) = base_noise
              df = 4
              scale = base_noise / np.sqrt(df / (df - 2))
              return np.random.standard_t(df) * scale
@@ -755,9 +747,6 @@ class UWBChannelModel:
     def noise_model(self) -> str:
         return getattr(self, '_noise_model', "gaussian")
 
-
-
-    # ... Add other legacy methods if strictly required by imports elsewhere ...
     def add_nlos_zone(self, x1, y1, x2, y2):
         self.nlos_zones.append(NLOSZone(x1, y1, x2, y2))
         
@@ -766,12 +755,10 @@ class UWBChannelModel:
 
     def check_los_condition(self, tx_pos: Position, rx_pos: Position) -> bool:
         """Check if path between transmitter and receiver is LOS"""
-        # Check static zones
         for zone in self.nlos_zones:
             if self._line_intersects_zone(tx_pos, rx_pos, zone):
                 return False
 
-        # Check moving zones
         for zone in self.moving_nlos_zones:
             if self._line_intersects_zone(tx_pos, rx_pos, zone):
                 return False
@@ -799,10 +786,10 @@ class UWBChannelModel:
             Boolean NumPy array (N_anchors,): True = LOS, False = NLOS
         """
         import time as _time
-        # Update moving zones first
-        current_time = _time.time()
-        for zone in self.moving_nlos_zones:
-            zone.update_position(current_time)
+        if self.moving_nlos_zones:
+            current_time = _time.time()
+            for zone in self.moving_nlos_zones:
+                zone.update_position(current_time)
 
         return batch_los_check_gpu(
             anchor_positions=anchor_positions_array,
@@ -820,20 +807,12 @@ class UWBChannelModel:
         Estimate Signal Quality (0-1) and SNR (linear) for a given distance.
         Used by channel_adapter.py
         """
-        # Calculate Path Loss (dB)
-        # We assume current state (LOS/NLOS) is already set or we default to LOS?
-        # The adapter calls check_los_to_anchor before this, which updates state?
-        # No, check_los checks geometry but might not update 'self.current_*' if it's just a check.
-        # But simulation loop usually calls 'update_los_condition'.
-        # We'll use the current state's path loss params.
-        
         path_loss_db, _ = self.calculate_path_loss_and_shadowing(
             distance, 
             self.uwb_params.center_frequency, 
             self.is_los
         )
         
-        # Calculate SNR logic (simplified from measure_distance_detailed)
         tx_power_total_dbm = self.uwb_params.tx_power_dbm
         if tx_power_total_dbm < -30:
             bw_mhz = self.uwb_params.bandwidth / 1e6
@@ -848,10 +827,8 @@ class UWBChannelModel:
         noise_power_watts = self.calculate_thermal_noise()
         snr_linear = rx_power_watts / noise_power_watts
         
-        # Map SNR to Quality (0-1)
-        # range -10dB to 20dB -> 0 to 1?
         snr_db = 10 * np.log10(snr_linear) if snr_linear > 0 else -100
-        quality = np.clip((snr_db + 10) / 30.0, 0.0, 1.0) # -10dB -> 0, +20dB -> 1
+        quality = np.clip((snr_db + 10) / 30.0, 0.0, 1.0)
         
         return quality, snr_linear
 
@@ -865,12 +842,7 @@ class UWBChannelModel:
             self.uwb_params.center_frequency, 
             is_los
         )
-        # Convert dB loss to linear amplitude attenuation
-        # Loss_db = -20 log10(Amp_out / Amp_in)
-        # Amp_Ratio = 10^(-Loss_db / 20)
         return 10 ** (-pl_db / 20.0)
-
-    # noise_model property is defined above (line ~738) via set_noise_model / @property
 
     @property
     def n_paths(self) -> int:
