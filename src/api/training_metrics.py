@@ -7,13 +7,15 @@ backend process rather than by the Qt event loop.
 
 from __future__ import annotations
 
+import glob
 import json
+import math
 import os
 import threading
 import time
 from collections import deque
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 DASHBOARD_HTML = """<!doctype html>
 <html lang="en">
@@ -139,41 +141,102 @@ setInterval(refresh, 1000);
 """
 
 
+def _sanitize(value: Any) -> Tuple[Any, bool]:
+    """Replace NaN/Inf with None (JSON has no NaN). Returns (clean, had_non_finite)."""
+    if isinstance(value, float):
+        if math.isfinite(value):
+            return value, False
+        return None, True
+    if isinstance(value, dict):
+        bad = False
+        out = {}
+        for key, item in value.items():
+            out[key], flag = _sanitize(item)
+            bad = bad or flag
+        return out, bad
+    if isinstance(value, (list, tuple)):
+        bad = False
+        out_list = []
+        for item in value:
+            clean, flag = _sanitize(item)
+            out_list.append(clean)
+            bad = bad or flag
+        return out_list, bad
+    return value, False
+
+
 class MetricsRecorder:
     """Append-only JSONL sink with a bounded in-memory tail.
 
     One record is one line, flushed immediately, so an external tailer (and a
     human with a text editor) can follow a live 24-hour run.
+
+    Long-run guarantees:
+
+    * ``status.json`` is rewritten at most every ``status_interval`` seconds
+      (phase changes, resets and close are written immediately). Rewriting it
+      per record was the dominant I/O cost, and on Windows ``os.replace`` fails
+      whenever a reader holds the file open.
+    * When ``metrics.jsonl`` exceeds ``max_bytes`` it is renamed to
+      ``metrics.NNNNNN.jsonl`` and a fresh ``metrics.jsonl`` is opened, so the
+      live path is stable for tailers and no record is ever dropped.
+    * Write failures never propagate into the simulation loop, but they are
+      counted and reported in the status (``io_errors``/``last_io_error``).
+    * NaN/Inf values are written as ``null`` and counted
+      (``non_finite_records``) so numerical faults are visible, not hidden.
     """
 
-    def __init__(self, run_dir: str, tail_limit: int = 5000):
+    DEFAULT_MAX_BYTES = 256 * 1024 * 1024
+
+    def __init__(self, run_dir: str, tail_limit: int = 5000,
+                 status_interval: float = 1.0,
+                 max_bytes: Optional[int] = DEFAULT_MAX_BYTES):
         self.run_dir = str(run_dir)
         self.tail_limit = int(tail_limit)
+        self.status_interval = float(status_interval)
+        self.max_bytes = int(max_bytes) if max_bytes else None
         os.makedirs(self.run_dir, exist_ok=True)
         self.metrics_path = os.path.join(self.run_dir, "metrics.jsonl")
         self.status_path = os.path.join(self.run_dir, "status.json")
         self._lock = threading.Lock()
         self._tail: deque = deque(maxlen=self.tail_limit)
+        # Continue numbering after any segments left by a previous (resumed) run.
+        self._segment_index = self._existing_segment_count()
         self._fh = open(self.metrics_path, "a", encoding="utf-8", buffering=1)
         self._count = 0
         self._last_step = -1
         self._sim_time = 0.0
         self._phase = "starting"
         self._closed = False
+        self._io_errors = 0
+        self._last_io_error: Optional[str] = None
+        self._status_errors = 0
+        self._non_finite = 0
         self._started_wall = time.time()
+        self._last_status_write = 0.0
         self._write_status()
+
+    def _existing_segment_count(self) -> int:
+        return len(glob.glob(os.path.join(self.run_dir, "metrics.[0-9]*.jsonl")))
 
     # ── writing ────────────────────────────────────────────────────────────
 
     def record(self, payload: Dict[str, Any]) -> None:
-        """Append one metrics record and refresh status."""
+        """Append one metrics record and refresh status (throttled)."""
         with self._lock:
             if self._closed:
                 return
-            payload = dict(payload)
+            payload, had_non_finite = _sanitize(dict(payload))
+            if had_non_finite:
+                self._non_finite += 1
             payload.setdefault("wall_time", time.time())
-            self._fh.write(json.dumps(payload, default=float) + "\n")
-            self._fh.flush()
+            try:
+                self._fh.write(json.dumps(payload, default=float) + "\n")
+                self._fh.flush()
+                self._maybe_rotate()
+            except (OSError, ValueError) as exc:
+                self._io_errors += 1
+                self._last_io_error = "%s: %s" % (type(exc).__name__, exc)
             self._tail.append(payload)
             self._count += 1
             if "step" in payload:
@@ -186,8 +249,30 @@ class MetricsRecorder:
                     self._sim_time = float(payload["time"])
                 except (TypeError, ValueError):
                     pass
+            phase_changed = self._phase != "running"
             self._phase = "running"
-            self._write_status()
+            if phase_changed or (time.time() - self._last_status_write) >= self.status_interval:
+                self._write_status()
+
+    def _maybe_rotate(self) -> None:
+        if self.max_bytes is None or self._fh.tell() < self.max_bytes:
+            return
+        self._fh.close()
+        self._segment_index += 1
+        target = os.path.join(self.run_dir, "metrics.%06d.jsonl" % self._segment_index)
+        try:
+            os.replace(self.metrics_path, target)
+        finally:
+            # Always reopen, even if the rename failed, so recording continues.
+            self._fh = open(self.metrics_path, "a", encoding="utf-8", buffering=1)
+
+    def heartbeat(self) -> None:
+        """Refresh ``status.json`` (throttled) when no records are flowing, e.g. paused."""
+        with self._lock:
+            if self._closed:
+                return
+            if (time.time() - self._last_status_write) >= self.status_interval:
+                self._write_status()
 
     def set_phase(self, phase: str) -> None:
         with self._lock:
@@ -205,8 +290,8 @@ class MetricsRecorder:
             self._sim_time = 0.0
             self._write_status()
 
-    def _write_status(self) -> None:
-        status = {
+    def _status_dict(self) -> Dict[str, Any]:
+        return {
             "pid": os.getpid(),
             "phase": self._phase,
             "last_step": self._last_step,
@@ -215,14 +300,25 @@ class MetricsRecorder:
             "last_wall_time": time.time(),
             "started_wall_time": self._started_wall,
             "metrics_path": self.metrics_path,
+            "segments": self._segment_index + 1,
+            "io_errors": self._io_errors,
+            "last_io_error": self._last_io_error,
+            "status_write_errors": self._status_errors,
+            "non_finite_records": self._non_finite,
         }
+
+    def _write_status(self) -> None:
+        status = self._status_dict()
+        self._last_status_write = time.time()
         tmp = self.status_path + ".tmp"
         try:
             with open(tmp, "w", encoding="utf-8") as fh:
                 json.dump(status, fh, indent=2)
             os.replace(tmp, self.status_path)
         except OSError:
-            pass
+            # Typically a reader holding status.json on Windows; the next
+            # interval retries. Counted so a permanently stale file is visible.
+            self._status_errors += 1
 
     # ── reading ────────────────────────────────────────────────────────────
 
@@ -232,22 +328,16 @@ class MetricsRecorder:
 
     def status(self) -> Dict[str, Any]:
         with self._lock:
-            return {
-                "pid": os.getpid(),
-                "phase": self._phase,
-                "last_step": self._last_step,
-                "sim_time": self._sim_time,
-                "records": self._count,
-                "last_wall_time": time.time(),
-                "started_wall_time": self._started_wall,
-                "metrics_path": self.metrics_path,
-            }
+            return self._status_dict()
 
     def close(self) -> None:
         with self._lock:
             if self._closed:
                 return
-            self._phase = "stopped"
+            # A failed run must stay visibly failed after exit; only a healthy
+            # run is closed as "stopped".
+            if self._phase != "failed":
+                self._phase = "stopped"
             self._write_status()
             self._closed = True
             try:

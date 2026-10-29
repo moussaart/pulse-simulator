@@ -49,7 +49,6 @@ from src.gui.windows.cir_window import CIRWindow
 
 # AI Training API import
 from src.api import TrainingDataAPI, AITrainingAPI
-from src.gui.windows.ai_training_window import AITrainingWindow
 from src.gui.windows.algorithm_creation_window import AlgorithmCreationWindow
 from src.core.uwb.energy_model import EnergyCalculator, EnergyConfig
 from src.gui.windows.energy_window import EnergyWindow
@@ -1178,143 +1177,11 @@ class LocalizationApp(QMainWindow):
     
     def toggle_ai_data_collection(self):
         """Toggle the independent AI Training Window"""
-        if self.ai_data_btn.isChecked():
-            from PyQt5.QtWidgets import QInputDialog
-            
-            num_agents, ok = QInputDialog.getInt(
-                self, 
-                "Number of Simulations", 
-                "Enter number of simultaneous agents (multi-point):", 
-                1, 1, 100
-            )
-            
-            if not ok:
-                self.ai_data_btn.blockSignals(True)
-                self.ai_data_btn.setChecked(False)
-                self.ai_data_btn.blockSignals(False)
-                return
-                
-            self.ai_window = AITrainingWindow(main_app=self, num_agents=num_agents)
-            self.ai_window.show()
-            self.ai_window.refresh_base_plot()
-            
-            print("=" * 80)
-            print("🤖 AI Training Window: OPENED")
-            print(f"Waiting for external PyTorch client to connect for {num_agents} agents...")
-            print("=" * 80)
-            self.ai_data_btn.setText("🤖 Close AI")
-            self.ai_data_btn.setToolTip("Close AI Training Window")
-        else:
-            if self.ai_window:
-                self.ai_window.close()
-            
-            self.ai_data_btn.setText("🤖 Start AI")
-            self.ai_data_btn.setToolTip("Open AI Training Window")
+        # The AI Training Window was removed; keep the button inert.
+        self.ai_data_btn.blockSignals(True)
+        self.ai_data_btn.setChecked(False)
+        self.ai_data_btn.blockSignals(False)
 
-            
-            # Get statistics
-            stats = self.training_api.get_statistics()
-            sample_count = stats.get('sample_count', 0)
-            
-            print("\n" + "=" * 80)
-            print("🤖 AI Training Data Collection: STOPPED")
-            print("=" * 80)
-            print(f"\n📊 Collection Statistics:")
-            print(f"   Samples collected: {sample_count}")
-            
-            if sample_count > 0:
-                print(f"   Time range: {stats.get('time_range', (0, 0))}")
-                print(f"   Duration: {stats.get('duration', 0):.2f}s")
-                if 'mean_error' in stats:
-                    print(f"   Mean error: {stats['mean_error']*1000:.2f}mm")
-                    print(f"   Std error: {stats['std_error']*1000:.2f}mm")
-                    print(f"   Max error: {stats['max_error']*1000:.2f}mm")
-                if 'mean_snr_db' in stats:
-                    print(f"   Mean SNR: {stats['mean_snr_db']:.1f}dB")
-                print(f"   LOS percentage: {stats.get('los_percentage', 0):.1f}%")
-                
-                # Print detailed samples (last 3)
-                samples = self.training_api.get_buffer()[-3:]
-                print(f"\n" + "=" * 80)
-                print(f"📝 Detailed Data for Last {len(samples)} Samples")
-                print("=" * 80)
-                
-                for s in samples:
-                    print(f"\n{'─' * 80}")
-                    print(f"⏱️  TIMESTAMP: {s.timestamp:.4f}s")
-                    print(f"{'─' * 80}")
-                    
-                    # TAG DATA
-                    print(f"\n🏷️  TAG DATA:")
-                    print(f"   Real Position (GT):     ({s.tag_position_gt[0]:.4f}, {s.tag_position_gt[1]:.4f})")
-                    
-                    if s.filter_outputs:
-                        for algo_name, fo in s.filter_outputs.items():
-                            print(f"   Algorithm:              {algo_name}")
-                            print(f"   Estimated Position:     ({fo.estimated_position[0]:.4f}, {fo.estimated_position[1]:.4f})")
-                            print(f"   Estimation Error:       {fo.estimation_error*1000:.2f} mm")
-                            if fo.state_covariance is not None:
-                                import numpy as np
-                                cov = np.array(fo.state_covariance)
-                                if cov.shape[0] >= 2:
-                                    print(f"   Position Variance:      (σx²={cov[0,0]:.6f}, σy²={cov[1,1]:.6f})")
-                    
-                    # IMU DATA
-                    if s.imu_acceleration:
-                        print(f"\n🎢 IMU DATA:")
-                        print(f"   Acceleration (m/s²):    ax={s.imu_acceleration[0]:.4f}, ay={s.imu_acceleration[1]:.4f}, az={s.imu_acceleration[2]:.4f}")
-                    if s.imu_angular_velocity:
-                        print(f"   Angular Vel (rad/s):    ωx={s.imu_angular_velocity[0]:.4f}, ωy={s.imu_angular_velocity[1]:.4f}, ωz={s.imu_angular_velocity[2]:.4f}")
-                    
-                    # PER-ANCHOR DATA
-                    print(f"\n📡 ANCHOR DATA ({len(s.anchor_ids)} anchors):")
-                    print(f"   {'ID':<6} {'Position':<20} {'Dist(meas)':<12} {'Dist(true)':<12} {'Error':<10} {'LOS/NLOS':<10} {'SNR(dB)':<10} {'PathLoss':<10}")
-                    print(f"   {'-'*6} {'-'*20} {'-'*12} {'-'*12} {'-'*10} {'-'*10} {'-'*10} {'-'*10}")
-                    
-                    for i, anchor_id in enumerate(s.anchor_ids):
-                        # Anchor position
-                        if i < len(s.anchor_positions):
-                            pos = s.anchor_positions[i]
-                            pos_str = f"({pos[0]:.1f}, {pos[1]:.1f})"
-                        else:
-                            pos_str = "N/A"
-                        
-                        # Measured distance
-                        dist_meas = s.distances_measured[i] if i < len(s.distances_measured) else 0
-                        
-                        # True distance
-                        dist_true = s.distances_true[i] if i < len(s.distances_true) else 0
-                        
-                        # Distance error
-                        dist_err = (dist_meas - dist_true) * 1000  # in mm
-                        
-                        # LOS/NLOS
-                        is_los = s.los_conditions[i] if i < len(s.los_conditions) else True
-                        los_str = "LOS" if is_los else "NLOS"
-                        
-                        # Channel data
-                        if i < len(s.channel_data):
-                            cd = s.channel_data[i]
-                            snr_str = f"{cd.snr_db:.1f}"
-                            pl_str = f"{cd.path_loss_db:.1f}"
-                        else:
-                            snr_str = "N/A"
-                            pl_str = "N/A"
-                        
-                        print(f"   {anchor_id:<6} {pos_str:<20} {dist_meas:<12.4f} {dist_true:<12.4f} {dist_err:<10.1f}mm {los_str:<10} {snr_str:<10} {pl_str:<10}")
-                
-                # Export to file
-                export_path = "ai_training_data.npz"
-                self.training_api.export_to_file(export_path)
-                print(f"\n💾 Data exported to: {export_path}")
-            
-            print("=" * 80 + "\n")
-            
-            # Reset button
-            self.ai_data_btn.setText("🤖 AI Data")
-            self.ai_data_btn.setToolTip("Print/Export AI Training Data")
-    
-    
     def toggle_delete_mode(self):
         """Toggle delete mode for NLOS zones"""
         is_active = self.nlos_widgets['delete_mode_btn'].isChecked()

@@ -25,6 +25,7 @@ import signal
 import sys
 import threading
 import time
+import traceback
 from typing import Any, Dict, List, Optional, Sequence
 
 from src.api.ai_training_engine import AITrainingEngine, TrainingConfig
@@ -50,6 +51,17 @@ __all__ = [
 ]
 
 PROTOCOL_VERSION = 3
+
+#: Process exit codes, so an external supervisor can tell a clean finish from a
+#: fault that warrants a restart.
+EXIT_OK = 0
+EXIT_FAILED = 3
+
+#: Default budget of back-to-back failing steps before the worker gives up. A
+#: single numerical blow-up is recoverable by starting a new episode; ten in a
+#: row means the engine or configuration is broken and looping would only fill
+#: the log.
+DEFAULT_MAX_CONSECUTIVE_ERRORS = 10
 
 #: ``PULSE.exe --ai-training-worker ...`` runs this instead of the Qt GUI. The
 #: same flag works for ``python -m src.api.ai_training_worker`` and for the frozen
@@ -171,6 +183,7 @@ class TrainingWorker:
         serve_gym: bool = False,
         gym_host: str = "0.0.0.0",
         gym_port: int = 5555,
+        max_consecutive_errors: int = DEFAULT_MAX_CONSECUTIVE_ERRORS,
     ) -> None:
         self.config = config if config is not None else load_worker_config(config_path)
         # Building the engine validates the algorithm, movement pattern and dt,
@@ -208,12 +221,16 @@ class TrainingWorker:
 
         self._phase = "running"
         self._step = 0
-        self._pending_reward: Optional[Dict[str, float]] = None
+        self._pending_reward: Optional[Dict[str, Any]] = None
         self._pending_actions: List[Dict[str, Any]] = []
         self._started_wall = time.time()
         self._lock = threading.RLock()
         self._stop_event = threading.Event()
         self._wake_event = threading.Event()
+        self.max_consecutive_errors = int(max_consecutive_errors)
+        self._errors_total = 0
+        self._consecutive_errors = 0
+        self._last_error: Optional[str] = None
         self.recorder.set_phase("running")
 
     @staticmethod
@@ -239,6 +256,9 @@ class TrainingWorker:
                 "metrics_path": self.recorder.metrics_path,
                 "gym_port": self.gym.port if self.gym is not None else None,
                 "uptime_s": time.time() - self._started_wall,
+                "errors_total": self._errors_total,
+                "consecutive_errors": self._consecutive_errors,
+                "last_error": self._last_error,
             }
 
     def pause(self) -> Dict[str, Any]:
@@ -600,22 +620,82 @@ class TrainingWorker:
 
     def run_forever(self, max_steps: Optional[int] = None,
                     on_frame=None) -> int:
-        """Step until stopped. Returns the number of steps actually taken."""
+        """Step until stopped. Returns the number of steps actually taken.
+
+        Each iteration runs inside an error boundary: a failing step is logged
+        (with traceback) to ``metrics.jsonl``, the engine is reset to a clean
+        episode, and stepping continues. More than ``max_consecutive_errors``
+        failures in a row move the worker to the ``failed`` phase and stop it.
+        """
         taken = 0
         while not self.stopped:
             if max_steps is not None and taken >= max_steps:
                 break
-            if self.status["phase"] == "paused":
+            if self._phase == "paused":
+                self._heartbeat()
                 self._wake_event.wait(0.25)
                 self._wake_event.clear()
                 continue
-            frame = self.tick()
-            if frame.get("step_id") == self._step - 1:
-                taken += 1
-            if on_frame is not None:
-                on_frame(frame)
-            self._exchange_with_agent(frame)
+            try:
+                frame = self.tick()
+                if frame.get("step_id") == self._step - 1:
+                    taken += 1
+                if on_frame is not None:
+                    on_frame(frame)
+                self._exchange_with_agent(frame)
+            except Exception as exc:  # noqa: BLE001 - this *is* the boundary
+                if not self._handle_step_error(exc):
+                    break
+                continue
+            self._consecutive_errors = 0
         return taken
+
+    def _heartbeat(self) -> None:
+        self.recorder.heartbeat()
+
+    def _handle_step_error(self, exc: BaseException) -> bool:
+        """Record a step failure. Returns False when the error budget is spent."""
+        self._errors_total += 1
+        self._consecutive_errors += 1
+        self._last_error = "%s: %s" % (type(exc).__name__, exc)
+        self.recorder.record({
+            "event": "error",
+            "failed_step": self._step,
+            "error_type": type(exc).__name__,
+            "message": str(exc),
+            "traceback": traceback.format_exc(),
+            "consecutive": self._consecutive_errors,
+            "errors_total": self._errors_total,
+        })
+        print("[worker] step %d failed (%d in a row): %s"
+              % (self._step, self._consecutive_errors, self._last_error), flush=True)
+
+        if self._consecutive_errors > self.max_consecutive_errors:
+            self._fail()
+            return False
+        # The engine may be half-updated; a fresh episode is the only state we
+        # can trust. Logged as a reset so the step counter restart is explained.
+        try:
+            self.reset()
+            self.recorder.record({"event": "recovered_reset", "after_error": self._last_error})
+        except Exception as reset_exc:  # noqa: BLE001
+            self._last_error = "reset failed: %s: %s" % (type(reset_exc).__name__, reset_exc)
+            self._fail()
+            return False
+        return True
+
+    def _fail(self) -> None:
+        self._stop_event.set()
+        self._wake_event.set()
+        if self.gym is not None:
+            self.gym.stop()
+        with self._lock:
+            self._phase = "failed"
+            self.recorder.set_phase("failed")
+
+    @property
+    def failed(self) -> bool:
+        return self._phase == "failed"
 
     def run_in_thread(self, max_steps: Optional[int] = None) -> threading.Thread:
         thread = threading.Thread(
@@ -625,7 +705,10 @@ class TrainingWorker:
         return thread
 
     def close(self) -> None:
-        self.stop()
+        if not self.failed:
+            self.stop()
+        else:
+            self._stop_event.set()
         if self.frames is not None:
             self.frames.stop()
         if self.gym is not None:
@@ -713,14 +796,19 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             except (ValueError, OSError):
                 pass
 
+    failed = False
     try:
         steps = worker.run_forever(max_steps=args.max_steps)
-        print(f"[worker] completed {steps} steps")
+        failed = worker.failed
+        if failed:
+            print(f"[worker] FAILED after {steps} steps: {worker.status['last_error']}", flush=True)
+        else:
+            print(f"[worker] completed {steps} steps")
     except KeyboardInterrupt:
         worker.stop()
     finally:
         worker.close()
-    return 0
+    return EXIT_FAILED if failed else EXIT_OK
 
 
 if __name__ == "__main__":
